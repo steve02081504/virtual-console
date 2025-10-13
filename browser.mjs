@@ -16,7 +16,7 @@ function formatArgs(args) {
 		if (arg instanceof Error && arg.stack) return arg.stack
 		try {
 			return JSON.stringify(arg, null, '\t')
-		} 
+		}
 		catch {
 			return String(arg)
 		}
@@ -56,25 +56,25 @@ export class VirtualConsole {
 		}
 
 		const methods = ['log', 'info', 'warn', 'debug', 'error', 'table', 'dir', 'assert', 'count', 'countReset', 'time', 'timeLog', 'timeEnd', 'group', 'groupCollapsed', 'groupEnd']
-		for (const method of methods) 
-			if (typeof this.#base_console[method] === 'function') 
+		for (const method of methods)
+			if (typeof this.#base_console[method] === 'function')
 				this[method] = (...args) => {
 					this.#loggedFreshLineId = null // 任何常规输出都会中断 freshLine 序列
-					
+
 					if (this.options.recordOutput)
 						this.outputs += formatArgs(args) + '\n'
-					
+
 					// 实际输出
 					if (this.options.realConsoleOutput)
 						this.#base_console[method](...args)
 				}
-			
-		
+
+
 
 		this.freshLine = this.freshLine.bind(this)
 		this.clear = this.clear.bind(this)
 	}
-	
+
 	/**
 	 * 在新的异步上下文中执行fn，并将该上下文的控制台替换为此对象。
 	 * 这是对 Node.js 中 AsyncLocalStorage.run 的浏览器模拟。
@@ -123,9 +123,9 @@ export class VirtualConsole {
 	clear() {
 		this.#loggedFreshLineId = null
 		this.outputs = ''
-		if (this.options.realConsoleOutput) 
+		if (this.options.realConsoleOutput)
 			this.#base_console.clear()
-		
+
 	}
 }
 
@@ -148,9 +148,9 @@ let consoleReflectSet = (v) => {
 	currentAsyncConsole = v
 }
 
-/** 
+/**
  * @template T
- * @type {(value: VirtualConsole, fn: () => T | Promise<T>) => Promise<T>} 
+ * @type {(value: VirtualConsole, fn: () => T | Promise<T>) => Promise<T>}
  */
 let consoleReflectRun = async (v, fn) => {
 	const previousConsole = currentAsyncConsole
@@ -158,7 +158,8 @@ let consoleReflectRun = async (v, fn) => {
 	try {
 		const result = fn()
 		return await Promise.resolve(result)
-	} finally {
+	}
+	finally {
 		currentAsyncConsole = previousConsole
 	}
 }

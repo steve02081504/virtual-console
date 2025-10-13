@@ -1,6 +1,4 @@
-const module = await import(
-    globalThis.document ? './browser.mjs' : './node.mjs'
-)
+const module = await import(globalThis.document ? './browser.mjs' : './node.mjs')
 
 export const consoleAsyncStorage = module.consoleAsyncStorage
 export const VirtualConsole = module.VirtualConsole
