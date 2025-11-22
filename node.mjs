@@ -24,22 +24,23 @@ const cleanupRegistry = new FinalizationRegistry(cleanupToken => {
  */
 export class VirtualConsole extends Console {
 	/**
-	 * 在新的Async上下文中执行fn，并将fn上下文的控制台替换为此对象。
+	 * 在新的异步上下文中执行fn，并将该上下文的控制台替换为此对象。
+	 * 这是通过 Node.js 的 AsyncLocalStorage 实现的。
 	 * @template T
 	 * @overload
-	 * @param {() => T} fn - 在新的Async上下文中执行的函数。
+	 * @param {() => T | Promise<T>} fn - 在新的异步上下文中执行的函数。
 	 * @returns {Promise<T>} 返回 fn 函数的 Promise 结果。
 	 */
 	/**
-	 * 将当前Async上下文中的控制台替换为此对象。
+	 * 将当前“异步上下文”中的控制台替换为此对象。
 	 * @overload
 	 * @returns {void}
 	 */
 	/**
-	 * 若提供fn，则在新的Async上下文中执行fn，并将fn上下文的控制台替换为此对象。
-	 * 否则，将当前Async上下文中的控制台替换为此对象。
+	 * 若提供fn，则在新的异步上下文中执行fn，并将fn上下文的控制台替换为此对象。
+	 * 否则，将当前异步上下文中的控制台替换为此对象。
 	 * @template T - fn 函数的返回类型。
-	 * @param {(() => T) | undefined} [fn] - 在新的Async上下文中执行的函数。
+	 * @param {(() => T | Promise<T>) | undefined} [fn] - 在新的异步上下文中执行的函数。
 	 * @returns {Promise<T> | void} 若提供fn，则返回 fn 函数的 Promise 结果；否则返回void。
 	 */
 	hookAsyncContext(fn) {
@@ -64,6 +65,7 @@ export class VirtualConsole extends Console {
 	 * @param {object} [options={}] - 配置选项。
 	 * @param {boolean} [options.realConsoleOutput=false] - 如果为 true，则在捕获输出的同时，也调用底层控制台进行实际输出。
 	 * @param {boolean} [options.recordOutput=true] - 如果为 true，则捕获输出并保存在 outputs 属性中。
+	 * @param {boolean} [options.supportsAnsi] - 如果为 true, 则启用 ANSI 转义序列支持。
 	 * @param {function(Error): void} [options.error_handler=null] - 一个专门处理单个 Error 对象的错误处理器。
 	 * @param {Console} [options.base_console=console] - 用于 realConsoleOutput 的底层控制台实例。
 	 */

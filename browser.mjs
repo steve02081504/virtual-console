@@ -85,7 +85,7 @@ function formatArgs(args) {
 }
 
 /**
- * 创建一个虚拟控制台，用于捕获输出，同时可以选择性地将输出传递给真实的浏览器控制台。
+ * 创建一个虚拟控制台，用于捕获输出，同时可以选择性地将输出传递给真实的控制台。
  */
 export class VirtualConsole {
 	/** @type {string} - 捕获的所有输出 */
@@ -106,6 +106,7 @@ export class VirtualConsole {
 	 * @param {object} [options={}] - 配置选项。
 	 * @param {boolean} [options.realConsoleOutput=false] - 如果为 true，则在捕获输出的同时，也调用底层控制台进行实际输出。
 	 * @param {boolean} [options.recordOutput=true] - 如果为 true，则捕获输出并保存在 outputs 属性中。
+	 * @param {function(Error): void} [options.error_handler=null] - 一个专门处理单个 Error 对象的错误处理器。
 	 * @param {Console} [options.base_console=window.console] - 用于 realConsoleOutput 的底层控制台实例。
 	 */
 	constructor(options = {}) {
@@ -115,6 +116,7 @@ export class VirtualConsole {
 		this.options = {
 			realConsoleOutput: false,
 			recordOutput: true,
+			error_handler: null,
 			...options,
 		}
 
@@ -127,6 +129,7 @@ export class VirtualConsole {
 				 * @returns {void}
 				 */
 				this[method] = (...args) => {
+					if (method == 'error' && this.options.error_handler && args.length === 1 && args[0] instanceof Error) return this.options.error_handler(args[0])
 					this.#loggedFreshLineId = null // 任何常规输出都会中断 freshLine 序列
 
 					if (this.options.recordOutput) {
@@ -188,6 +191,7 @@ export class VirtualConsole {
 
 	/**
 	 * 清空捕获的输出，并选择性地清空真实控制台。
+	 * @returns {void}
 	 */
 	clear() {
 		this.#loggedFreshLineId = null
