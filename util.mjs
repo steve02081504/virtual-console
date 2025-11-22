@@ -54,6 +54,15 @@ export function argsToHtml(args) {
 
 	if (hasStyle) html = `<span>${html}</span>`
 
+	const replaceTable = {
+		'<span style="">': '<span>',
+		'<span></span>': '',
+	}
+
+	Object.entries(replaceTable).forEach(([key, value]) => {
+		html = html.replaceAll(key, value)
+	})
+
 	while (argIndex < args.length) {
 		const arg = args[argIndex++]
 		html += ' '
