@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/virtual-console",
-	"version": "0.0.8",
+	"version": "0.1.0",
 	"description": "A virtual console for capturing and manipulating terminal output.",
 	"main": "main.mjs",
 	"type": "module",
@@ -19,6 +19,7 @@
 	"dependencies": {
 		"ansi-escapes": "latest",
 		"full-proxy": "latest",
-		"supports-ansi": "latest"
+		"supports-ansi": "latest",
+		"ansi_up": "latest"
 	}
 }

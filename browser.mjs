@@ -1,4 +1,7 @@
+import { AnsiUp } from 'ansi_up'
 import { FullProxy } from 'full-proxy'
+
+const ansi_up = new AnsiUp()
 
 /**
  * 存储原始的浏览器 console 对象。
@@ -11,16 +14,141 @@ const originalConsole = window.console
  * @returns {string} 格式化后的单行字符串。
  */
 function formatArgs(args) {
-	return args.map(arg => {
-		if (Object(arg) instanceof String) return arg
-		if (arg instanceof Error && arg.stack) return arg.stack
-		try {
-			return JSON.stringify(arg, null, '\t')
+	if (args.length === 0) return ''
+	const format = args[0]
+	if (typeof format !== 'string')
+		return args.map(arg => {
+			if (Object(arg) instanceof String) return arg
+			if (arg instanceof Error && arg.stack) return arg.stack
+			try {
+				return JSON.stringify(arg, null, '\t')
+			}
+			catch {
+				return String(arg)
+			}
+		}).join(' ')
+
+	let output = ''
+	let argIndex = 1
+	let lastIndex = 0
+	const regex = /%[sdifoOc%]/g
+	let match
+
+	while ((match = regex.exec(format)) !== null) {
+		output += format.slice(lastIndex, match.index)
+		lastIndex = regex.lastIndex
+
+		if (match[0] === '%%') {
+			output += '%'
+			continue
 		}
-		catch {
-			return String(arg)
+
+		if (argIndex >= args.length) {
+			output += match[0]
+			continue
 		}
-	}).join(' ')
+
+		const arg = args[argIndex++]
+		switch (match[0]) {
+			case '%c':
+				break
+			case '%s':
+				output += String(arg)
+				break
+			case '%d':
+			case '%i':
+				output += String(parseInt(arg))
+				break
+			case '%f':
+				output += String(parseFloat(arg))
+				break
+			case '%o':
+			case '%O':
+				try { output += JSON.stringify(arg, null, '\t') }
+				catch { output += String(arg) }
+				break
+		}
+	}
+	output += format.slice(lastIndex)
+
+	while (argIndex < args.length) {
+		const arg = args[argIndex++]
+		if (output) output += ' '
+		if (arg instanceof Error && arg.stack) output += arg.stack
+		else if (typeof arg === 'object')
+			try { output += JSON.stringify(arg, null, '\t') }
+			catch { output += String(arg) }
+
+		else output += String(arg)
+	}
+
+	return output
+}
+
+/**
+ * 将 console 参数格式化为 HTML 字符串。
+ * @param {any[]} args - console 方法接收的参数数组。
+ * @returns {string} 格式化后的 HTML 字符串。
+ */
+function argsToHtml(args) {
+	if (args.length === 0) return ''
+	const format = args[0]
+	if (typeof format !== 'string')
+		return args.map(arg => {
+			if (arg instanceof Error && arg.stack) return ansi_up.ansi_to_html(arg.stack)
+			if (typeof arg === 'object')
+				try { return ansi_up.ansi_to_html(JSON.stringify(arg, null, 2)) }
+				catch { return String(arg) }
+
+			return ansi_up.ansi_to_html(String(arg))
+		}).join(' ')
+
+
+	let html = ansi_up.ansi_to_html(format)
+	let argIndex = 1
+	let hasStyle = false
+
+	const regex = /%[sdifoOc%]/g
+	html = html.replace(regex, (match) => {
+		if (match === '%%') return '%'
+		if (argIndex >= args.length) return match
+
+		const arg = args[argIndex++]
+		switch (match) {
+			case '%c': {
+				hasStyle = true
+				const style = String(arg)
+				return `</span><span style="${style}">`
+			}
+			case '%s':
+				return ansi_up.ansi_to_html(String(arg))
+			case '%d':
+			case '%i':
+				return String(parseInt(arg))
+			case '%f':
+				return String(parseFloat(arg))
+			case '%o':
+			case '%O':
+				try { return ansi_up.ansi_to_html(JSON.stringify(arg)) }
+				catch { return String(arg) }
+		}
+		return match
+	})
+
+	if (hasStyle) html = `<span>${html}</span>`
+
+	while (argIndex < args.length) {
+		const arg = args[argIndex++]
+		html += ' '
+		if (arg instanceof Error && arg.stack) html += ansi_up.ansi_to_html(arg.stack)
+		else if (typeof arg === 'object')
+			try { html += ansi_up.ansi_to_html(JSON.stringify(arg, null, 2)) }
+			catch { html += String(arg) }
+
+		else html += ansi_up.ansi_to_html(String(arg))
+	}
+
+	return html
 }
 
 /**
@@ -29,6 +157,8 @@ function formatArgs(args) {
 export class VirtualConsole {
 	/** @type {string} - 捕获的所有输出 */
 	outputs = ''
+	/** @type {string} - 捕获的所有输出 (HTML) */
+	outputsHtml = ''
 
 	/** @type {object} - 最终合并后的配置项 */
 	options
@@ -58,18 +188,23 @@ export class VirtualConsole {
 		const methods = ['log', 'info', 'warn', 'debug', 'error', 'table', 'dir', 'assert', 'count', 'countReset', 'time', 'timeLog', 'timeEnd', 'group', 'groupCollapsed', 'groupEnd']
 		for (const method of methods)
 			if (typeof this.#base_console[method] === 'function')
+				/**
+				 * 重写控制台方法
+				 * @param {...any} args - 控制台方法的参数。
+				 * @returns {void}
+				 */
 				this[method] = (...args) => {
 					this.#loggedFreshLineId = null // 任何常规输出都会中断 freshLine 序列
 
-					if (this.options.recordOutput)
+					if (this.options.recordOutput) {
 						this.outputs += formatArgs(args) + '\n'
+						this.outputsHtml += argsToHtml(args) + '\n'
+					}
 
 					// 实际输出
 					if (this.options.realConsoleOutput)
 						this.#base_console[method](...args)
 				}
-
-
 
 		this.freshLine = this.freshLine.bind(this)
 		this.clear = this.clear.bind(this)
@@ -92,8 +227,9 @@ export class VirtualConsole {
 	/**
 	 * 若提供fn，则在新的异步上下文中执行fn，并将fn上下文的控制台替换为此对象。
 	 * 否则，将当前异步上下文中的控制台替换为此对象。
-	 * @param {(() => T | Promise<T>) | undefined} [fn]
-	 * @returns {Promise<T> | void}
+	 * @template T - fn 函数的返回类型。
+	 * @param {(() => T | Promise<T>) | undefined} [fn] - 在新的异步上下文中执行的函数。
+	 * @returns {Promise<T> | void} 若提供fn，则返回 fn 函数的 Promise 结果；否则返回void。
 	 */
 	hookAsyncContext(fn) {
 		if (fn) return consoleReflectRun(this, fn)
@@ -118,23 +254,30 @@ export class VirtualConsole {
 	}
 
 	/**
-	 * 清空捕获的输出，并可以选择性地清空真实控制台。
+	 * 清空捕获的输出，并选择性地清空真实控制台。
 	 */
 	clear() {
 		this.#loggedFreshLineId = null
 		this.outputs = ''
+		this.outputsHtml = ''
 		if (this.options.realConsoleOutput)
 			this.#base_console.clear()
 
 	}
 }
 
+/**
+ * 默认的全局虚拟控制台实例。
+ */
 export const defaultConsole = new VirtualConsole({
 	base_console: originalConsole,
 	recordOutput: false,
 	realConsoleOutput: true,
 })
 
+/**
+ * 全局控制台的附加属性。
+ */
 export const globalConsoleAdditionalProperties = {}
 
 // 模拟 AsyncLocalStorage 的上下文存储
@@ -165,11 +308,27 @@ let consoleReflectRun = async (v, fn) => {
 }
 
 // 暴露设置和获取反射逻辑的函数，以完全匹配原始API
+/**
+ * 设置全局控制台反射逻辑
+ * @template T - fn 函数的返回类型
+ * @param {(console: Console) => Console} Reflect 将 console 参数映射到新的 console 对象的函数。
+ * @param {(console: Console) => void} ReflectSet 设置当前 console 对象的函数。
+ * @param {(console: Console, fn: () => T) => Promise<T>} ReflectRun  在新的异步上下文中执行函数的函数。
+ * @returns {void}
+ */
 export function setGlobalConsoleReflect(Reflect, ReflectSet, ReflectRun) {
+	/**
+	 * 获取全局控制台的反射逻辑。
+	 * @returns {void}
+	 */
 	consoleReflect = () => Reflect(defaultConsole)
 	consoleReflectSet = ReflectSet
 	consoleReflectRun = ReflectRun
 }
+/**
+ * 获取全局控制台反射逻辑。
+ * @returns {object} 包含 Reflect、ReflectSet 和 ReflectRun 函数的对象。
+ */
 export function getGlobalConsoleReflect() {
 	return {
 		Reflect: consoleReflect,
@@ -183,6 +342,13 @@ export function getGlobalConsoleReflect() {
  * 这与原始 Node.js 版本的实现完全相同。
  */
 export const console = globalThis.console = new FullProxy(() => Object.assign({}, globalConsoleAdditionalProperties, consoleReflect()), {
+	/**
+	 * 设置属性时的处理逻辑。
+	 * @param {object} target - 目标对象。
+	 * @param {string | symbol} property - 要设置的属性名。
+	 * @param {any} value - 要设置的属性值。
+	 * @returns {boolean} 指示属性是否成功设置的布尔值。
+	 */
 	set: (target, property, value) => {
 		target = consoleReflect()
 		if (property in target) return Reflect.set(target, property, value)
