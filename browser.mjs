@@ -1,6 +1,6 @@
 import { FullProxy } from 'full-proxy'
 
-import { argsToHtml } from './untl.mjs'
+import { argsToHtml } from './util.mjs'
 
 /**
  * 存储原始的浏览器 console 对象。
@@ -251,8 +251,8 @@ let consoleReflectRun = async (v, fn) => {
  */
 export function setGlobalConsoleReflect(Reflect, ReflectSet, ReflectRun) {
 	/**
-	 * 获取全局控制台的反射逻辑。
-	 * @returns {void}
+	 * 从默认控制台获取当前控制台对象。
+	 * @returns {Console} 当前控制台对象。
 	 */
 	consoleReflect = () => Reflect(defaultConsole)
 	consoleReflectSet = ReflectSet

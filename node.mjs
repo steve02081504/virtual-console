@@ -7,7 +7,7 @@ import ansiEscapes from 'ansi-escapes'
 import { FullProxy } from 'full-proxy'
 import supportsAnsi from 'supports-ansi'
 
-import { argsToHtml } from './untl.mjs'
+import { argsToHtml } from './util.mjs'
 
 /**
  * 全局异步存储，用于管理控制台上下文。
@@ -253,8 +253,8 @@ let consoleReflectRun = (v, fn) => consoleAsyncStorage.run(v, fn)
  */
 export function setGlobalConsoleReflect(Reflect, ReflectSet, ReflectRun) {
 	/**
-	 * 设置全局控制台反射逻辑
-	 * @returns {void}
+	 * 从默认控制台获取当前控制台对象。
+	 * @returns {Console} 当前控制台对象。
 	 */
 	consoleReflect = () => Reflect(defaultConsole)
 	consoleReflectSet = ReflectSet
@@ -276,9 +276,9 @@ export function getGlobalConsoleReflect() {
  */
 export const console = globalThis.console = new FullProxy(() => Object.assign({}, globalConsoleAdditionalProperties, consoleReflect()), {
 	/**
-	 * 获取属性时的处理逻辑。
+	 * 设置属性时的处理逻辑。
 	 * @param {object} target - 目标对象。
-	 * @param {string | symbol} property - 要获取的属性名。
+	 * @param {string | symbol} property - 要设置的属性名。
 	 * @param {any} value - 要设置的属性值。
 	 * @returns {any} 属性值。
 	 */
