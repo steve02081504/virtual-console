@@ -134,7 +134,7 @@ export class VirtualConsole {
 
 					if (this.options.recordOutput) {
 						this.outputs += formatArgs(args) + '\n'
-						this.outputsHtml += argsToHtml(args) + '\n'
+						this.outputsHtml += argsToHtml(args) + '<br/>\n'
 					}
 
 					// 实际输出

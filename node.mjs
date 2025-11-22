@@ -93,7 +93,7 @@ export class VirtualConsole extends Console {
 			 */
 			this[method] = (...args) => {
 				if (method == 'error' && this.options.error_handler && args.length === 1 && args[0] instanceof Error) return this.options.error_handler(args[0])
-				if (this.options.recordOutput) this.outputsHtml += argsToHtml(args) + '\n'
+				if (this.options.recordOutput) this.outputsHtml += argsToHtml(args) + '<br/>\n'
 				if (!this.options.realConsoleOutput || this.options.recordOutput) return originalMethod.apply(this, args)
 				this.#loggedFreshLineId = null
 				return this.#base_console[method](...args)
