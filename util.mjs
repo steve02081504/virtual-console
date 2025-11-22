@@ -10,10 +10,10 @@ const ansi_up = new AnsiUp()
 export function argsToHtml(args) {
 	if (args.length === 0) return ''
 	const format = args[0]
-	if (typeof format !== 'string')
+	if (format?.constructor !== String)
 		return args.map(arg => {
 			if (arg instanceof Error && arg.stack) return ansi_up.ansi_to_html(arg.stack)
-			if (typeof arg === 'object')
+			if ((arg === null || arg instanceof Object) && !(arg instanceof Function))
 				try { return ansi_up.ansi_to_html(JSON.stringify(arg, null, '\t')) }
 				catch { return String(arg) }
 
@@ -58,7 +58,7 @@ export function argsToHtml(args) {
 		const arg = args[argIndex++]
 		html += ' '
 		if (arg instanceof Error && arg.stack) html += ansi_up.ansi_to_html(arg.stack)
-		else if (typeof arg === 'object')
+		else if ((arg === null || arg instanceof Object) && !(arg instanceof Function))
 			try { html += ansi_up.ansi_to_html(JSON.stringify(arg, null, '\t')) }
 			catch { html += String(arg) }
 

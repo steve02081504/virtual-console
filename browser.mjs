@@ -15,7 +15,7 @@ const originalConsole = window.console
 function formatArgs(args) {
 	if (args.length === 0) return ''
 	const format = args[0]
-	if (typeof format !== 'string')
+	if (format?.constructor !== String)
 		return args.map(arg => {
 			if (Object(arg) instanceof String) return arg
 			if (arg instanceof Error && arg.stack) return arg.stack
@@ -74,7 +74,7 @@ function formatArgs(args) {
 		const arg = args[argIndex++]
 		if (output) output += ' '
 		if (arg instanceof Error && arg.stack) output += arg.stack
-		else if (typeof arg === 'object')
+		else if ((arg === null || arg instanceof Object) && !(arg instanceof Function))
 			try { output += JSON.stringify(arg, null, '\t') }
 			catch { output += String(arg) }
 
@@ -122,7 +122,7 @@ export class VirtualConsole {
 
 		const methods = ['log', 'info', 'warn', 'debug', 'error', 'table', 'dir', 'assert', 'count', 'countReset', 'time', 'timeLog', 'timeEnd', 'group', 'groupCollapsed', 'groupEnd']
 		for (const method of methods)
-			if (typeof this.#base_console[method] === 'function')
+			if (this.#base_console[method] instanceof Function)
 				/**
 				 * 重写控制台方法
 				 * @param {...any} args - 控制台方法的参数。
