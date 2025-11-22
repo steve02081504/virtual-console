@@ -1,7 +1,6 @@
-import { AnsiUp } from 'ansi_up'
 import { FullProxy } from 'full-proxy'
 
-const ansi_up = new AnsiUp()
+import { argsToHtml } from './untl.mjs'
 
 /**
  * 存储原始的浏览器 console 对象。
@@ -83,72 +82,6 @@ function formatArgs(args) {
 	}
 
 	return output
-}
-
-/**
- * 将 console 参数格式化为 HTML 字符串。
- * @param {any[]} args - console 方法接收的参数数组。
- * @returns {string} 格式化后的 HTML 字符串。
- */
-function argsToHtml(args) {
-	if (args.length === 0) return ''
-	const format = args[0]
-	if (typeof format !== 'string')
-		return args.map(arg => {
-			if (arg instanceof Error && arg.stack) return ansi_up.ansi_to_html(arg.stack)
-			if (typeof arg === 'object')
-				try { return ansi_up.ansi_to_html(JSON.stringify(arg, null, 2)) }
-				catch { return String(arg) }
-
-			return ansi_up.ansi_to_html(String(arg))
-		}).join(' ')
-
-
-	let html = ansi_up.ansi_to_html(format)
-	let argIndex = 1
-	let hasStyle = false
-
-	const regex = /%[sdifoOc%]/g
-	html = html.replace(regex, (match) => {
-		if (match === '%%') return '%'
-		if (argIndex >= args.length) return match
-
-		const arg = args[argIndex++]
-		switch (match) {
-			case '%c': {
-				hasStyle = true
-				const style = String(arg)
-				return `</span><span style="${style}">`
-			}
-			case '%s':
-				return ansi_up.ansi_to_html(String(arg))
-			case '%d':
-			case '%i':
-				return String(parseInt(arg))
-			case '%f':
-				return String(parseFloat(arg))
-			case '%o':
-			case '%O':
-				try { return ansi_up.ansi_to_html(JSON.stringify(arg)) }
-				catch { return String(arg) }
-		}
-		return match
-	})
-
-	if (hasStyle) html = `<span>${html}</span>`
-
-	while (argIndex < args.length) {
-		const arg = args[argIndex++]
-		html += ' '
-		if (arg instanceof Error && arg.stack) html += ansi_up.ansi_to_html(arg.stack)
-		else if (typeof arg === 'object')
-			try { html += ansi_up.ansi_to_html(JSON.stringify(arg, null, 2)) }
-			catch { html += String(arg) }
-
-		else html += ansi_up.ansi_to_html(String(arg))
-	}
-
-	return html
 }
 
 /**
@@ -292,7 +225,7 @@ let consoleReflectSet = (v) => {
 }
 
 /**
- * @template T
+ * @template T - fn 函数的返回类型
  * @type {(value: VirtualConsole, fn: () => T | Promise<T>) => Promise<T>}
  */
 let consoleReflectRun = async (v, fn) => {
