@@ -31,6 +31,12 @@ A powerful and flexible virtual console for **Node.js and the Browser** that all
 npm install @steve02081504/virtual-console
 ```
 
+### Browser Import
+
+```javascript
+import { VirtualConsole } from 'https://esm.sh/@steve02081504/virtual-console';
+```
+
 ## Usage
 
 ### 1. Basic Testing (Capture Output)
