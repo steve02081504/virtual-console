@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/virtual-console",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "A virtual console for capturing and manipulating terminal output.",
 	"main": "main.mjs",
 	"type": "module",

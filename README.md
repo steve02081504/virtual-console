@@ -157,6 +157,30 @@ Hooks the virtual console into the current execution context.
 - **Scope Limitation:** `hookAsyncContext(fn)` works for the duration of the function execution. However, strict "async" context propagation (like passing context into a `setTimeout` callback) is mimicked but may not be as robust as Node.js's native hooks.
 - `freshLine` cannot erase previous lines in the real browser console limitations, so it appends logs instead.
 
+## Security Considerations
+
+### HTML Injection Protection
+
+`VirtualConsole` is designed to be safe for rendering console output in an HTML context. All console arguments, including those used with `%s`, `%o`, and other format specifiers, are automatically sanitized to prevent Cross-Site Scripting (XSS) attacks.
+
+Specifically:
+
+- **Argument Sanitization:** All string-based inputs are escaped. For example, `<script>alert(1)</script>` becomes `&lt;script&gt;alert(1)&lt;/script&gt;`. This is handled by the underlying `ansi_up` library.
+- **CSS Style (`%c`) Sanitization:** When using the `%c` specifier for styling, the provided CSS string is sanitized to prevent it from breaking out of the `style` attribute. Potentially malicious characters like `<`, `>`, and `"` are escaped, ensuring that HTML cannot be injected.
+
+Example of protection:
+
+```javascript
+// Malicious input
+console.log('%cAttempting injection', '"><script>alert("pwned")</script><span style="');
+
+// Sanitized HTML Output
+// The malicious string is safely contained within the style attribute.
+// <span style="&quot;>&lt;script>alert(&quot;pwned&quot;)&lt;/script>&lt;span style=&quot;">Attempting injection</span>
+```
+
+This ensures that you can safely display logs in a web UI without creating security vulnerabilities.
+
 ## Integration for Library Authors
 
 If you are building a library that manages its own async contexts, you can synchronize with `VirtualConsole` using:

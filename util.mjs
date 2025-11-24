@@ -34,7 +34,7 @@ export function argsToHtml(args) {
 		switch (match) {
 			case '%c': {
 				hasStyle = true
-				const style = String(arg)
+				const style = String(arg).replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 				return `</span><span style="${style}">`
 			}
 			case '%s':

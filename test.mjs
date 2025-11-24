@@ -34,6 +34,12 @@ async function runTest() {
 		// 4. 混合测试
 		console.log('\n--- [4. Mixed] ---')
 		console.log('ANSI: \x1b[33mYellow\x1b[0m + %cCSS: Green%c', 'color: green', '')
+
+		// 5. 注入测试
+		console.log('\n--- [5. Injection Test] ---')
+		const injectionPayload = '"><script>alert("pwned")</script><span style="'
+		console.log('%cInjection Test', injectionPayload)
+		console.log('Attempting to inject a script tag: %s', '<script>alert("oops")</script>')
 	})
 
 	// --- 验证结果 ---
