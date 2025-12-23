@@ -13,10 +13,146 @@ import { argsToHtml } from './util.mjs'
  * 全局异步存储，用于管理控制台上下文。
  */
 export const consoleAsyncStorage = new AsyncLocalStorage()
-const cleanupRegistry = new FinalizationRegistry(cleanupToken => {
-	const { stream, listener } = cleanupToken
-	stream.off?.('resize', listener)
+
+/**
+ * WeakMap 用于存储每个流对应的 resize 监听器信息。
+ * @type {WeakMap<Writable, { listener: () => void, virtualStreams: Set<WeakRef<Writable>> }>}
+ */
+const streamResizeListeners = new WeakMap()
+
+/**
+ * FinalizationRegistry 用于清理虚拟流引用。
+ */
+const virtualStreamCleanupRegistry = new FinalizationRegistry(({ stream, virtualStreamRef }) => {
+	const listenerInfo = streamResizeListeners.get(stream)
+	if (!listenerInfo) return
+	listenerInfo.virtualStreams.delete(virtualStreamRef)
+	if (listenerInfo.virtualStreams.size) return
+	stream.off?.('resize', listenerInfo.listener)
+	streamResizeListeners.delete(stream)
 })
+
+/**
+ * 获取或创建一个流对应的监听器信息。
+ * @param {Writable} stream - 目标流。
+ * @returns {{ listener: () => void, virtualStreams: Set<WeakRef<Writable>> }} 监听器信息。
+ */
+function getListenerInfo(stream) {
+	const existing = streamResizeListeners.get(stream)
+	if (existing) return existing
+	const listenerInfo = {
+		/**
+		 * 统一的 resize 监听器，会通知所有使用该流的虚拟流。
+		 * @returns {void}
+		 */
+		listener: () => {
+			for (const ref of listenerInfo.virtualStreams) {
+				const virtualStream = ref.deref()
+				if (virtualStream) try { virtualStream.emit?.('resize') } catch (error) { console.error(error) }
+				else listenerInfo.virtualStreams.delete(ref)
+			}
+			if (listenerInfo.virtualStreams.size) return
+			stream.off?.('resize', listenerInfo.listener)
+			streamResizeListeners.delete(stream)
+		},
+		virtualStreams: new Set()
+	}
+	stream.on?.('resize', listenerInfo.listener)
+
+	streamResizeListeners.set(stream, listenerInfo)
+	return listenerInfo
+}
+
+/**
+ * 虚拟流类，用于创建虚拟控制台流。
+ * @augments {Writable}
+ */
+class VirtualStream extends Writable {
+	/**
+	 * @param {NodeJS.WritableStream} targetStream - 目标流。
+	 * @param {object} context - 虚拟控制台上下文。
+	 * @param {() => void} context.onWrite - 写入时的回调函数，用于重置 loggedFreshLineId。
+	 * @param {object} context.options - 虚拟控制台的配置选项。
+	 * @param {boolean} context.options.recordOutput - 是否记录输出。
+	 * @param {boolean} context.options.realConsoleOutput - 是否输出到真实控制台。
+	 * @param {{ outputs: string }} context.state - 虚拟控制台的状态对象，包含 outputs 属性。
+	 */
+	constructor(targetStream, context) {
+		super({
+			/**
+			 * 写入数据到虚拟流。
+			 * @param {Buffer | string} chunk - 要写入的数据块。
+			 * @param {string} encoding - 编码格式。
+			 * @param {() => void} callback - 写入完成的回调函数。
+			 */
+			write: (chunk, encoding, callback) => {
+				context.onWrite()
+
+				if (context.options.recordOutput)
+					context.state.outputs += chunk.toString()
+				if (context.options.realConsoleOutput)
+					targetStream.write(chunk, encoding, callback)
+				else
+					callback()
+			},
+		})
+
+		this.#targetStream = targetStream
+
+		if (targetStream.isTTY) {
+			const virtualStreamRef = new WeakRef(this)
+			const listenerInfo = getListenerInfo(targetStream)
+			listenerInfo.virtualStreams.add(virtualStreamRef)
+			virtualStreamCleanupRegistry.register(this, {
+				stream: targetStream,
+				virtualStreamRef
+			})
+		}
+	}
+
+	/** @private @type {NodeJS.WritableStream} - 目标流 */
+	#targetStream
+
+	/**
+	 * 判断目标流是否为 TTY
+	 * @returns {boolean} 是否为 TTY
+	 */
+	get isTTY() {
+		return this.#targetStream?.isTTY ?? false
+	}
+
+	/**
+	 * 获取目标流的列数
+	 * @returns {number} 列数
+	 */
+	get columns() {
+		return this.#targetStream.columns
+	}
+
+	/**
+	 * 获取目标流的行数
+	 * @returns {number} 行数
+	 */
+	get rows() {
+		return this.#targetStream.rows
+	}
+
+	/**
+	 * 获取目标流的颜色深度
+	 * @returns {number} 颜色深度
+	 */
+	getColorDepth() {
+		return this.#targetStream.getColorDepth()
+	}
+
+	/**
+	 * 判断目标流是否支持颜色
+	 * @returns {boolean} 是否支持颜色
+	 */
+	hasColors() {
+		return this.#targetStream.hasColors()
+	}
+}
 
 /**
  * 创建一个虚拟控制台，用于捕获输出，同时可以选择性地将输出传递给真实的控制台。
@@ -72,15 +208,16 @@ export class VirtualConsole extends Console {
 	constructor(options = {}) {
 		super(new Writable({ /** 啥也不干  */ write: () => { } }), new Writable({ /** 啥也不干  */ write: () => { } }))
 
-		this.base_console = options.base_console || consoleReflect()
+		const base_console = options.base_console || consoleReflect()
 		delete options.base_console
 		this.options = {
 			realConsoleOutput: false,
 			recordOutput: true,
-			supportsAnsi: this.#base_console.options?.supportsAnsi || supportsAnsi,
+			supportsAnsi: base_console.options?.supportsAnsi || supportsAnsi,
 			error_handler: null,
 			...options,
 		}
+		this.base_console = base_console
 		this.freshLine = this.freshLine.bind(this)
 		this.clear = this.clear.bind(this)
 		for (const method of ['log', 'info', 'warn', 'debug', 'error']) {
@@ -117,87 +254,20 @@ export class VirtualConsole extends Console {
 	set base_console(value) {
 		this.#base_console = value
 
-		/**
-		 * 创建一个虚拟的控制台流，用于捕获输出。
-		 * @param {NodeJS.WritableStream} targetStream - 目标流。
-		 * @returns {NodeJS.WritableStream} 虚拟流。
-		 */
-		const createVirtualStream = (targetStream) => {
-			const virtualStream = new Writable({
-				/**
-				 * 写入数据到虚拟流。
-				 * @param {Buffer | string} chunk - 要写入的数据块。
-				 * @param {string} encoding - 编码格式。
-				 * @param {() => void} callback - 写入完成的回调函数。
-				 */
-				write: (chunk, encoding, callback) => {
-					this.#loggedFreshLineId = null
-
-					if (this.options.recordOutput)
-						this.outputs += chunk.toString()
-					if (this.options.realConsoleOutput)
-						targetStream.write(chunk, encoding, callback)
-					else
-						callback()
-				},
-			})
-
-			if (targetStream.isTTY) {
-				Object.defineProperties(virtualStream, {
-					isTTY: { value: true, configurable: true, writable: false, enumerable: true },
-					columns: {
-						/**
-						 * 获取目标流的列数
-						 * @returns {number} 列数
-						 */
-						get: () => targetStream.columns, configurable: true, enumerable: true
-					},
-					rows: {
-						/**
-						 * 获取目标流的行数
-						 * @returns {number} 行数
-						 */
-						get: () => targetStream.rows, configurable: true, enumerable: true
-					},
-					getColorDepth: {
-						/**
-						 * 获取目标流的颜色深度
-						 * @returns {number} 颜色深度
-						 */
-						get: () => targetStream.getColorDepth.bind(targetStream), configurable: true, enumerable: true
-					},
-					hasColors: {
-						/**
-						 * 判断目标流是否支持颜色
-						 * @returns {boolean} 是否支持颜色
-						 */
-						get: () => targetStream.hasColors.bind(targetStream), configurable: true, enumerable: true
-					},
-				})
-
-				const virtualStreamRef = new WeakRef(virtualStream)
-
-				/**
-				 * 监听目标流的 resize 事件，并在虚拟流上触发相应的事件。
-				 * @returns {void}
-				 */
-				const resizeListener = () => {
-					virtualStreamRef.deref()?.emit('resize')
-				}
-
-				targetStream.on?.('resize', resizeListener)
-
-				cleanupRegistry.register(this, {
-					stream: targetStream,
-					listener: resizeListener,
-				}, this)
-			}
-
-			return virtualStream
+		const context = {
+			/**
+			 * 写入完成时的回调函数，用于重置 loggedFreshLineId。
+			 * @returns {void}
+			 */
+			onWrite: () => {
+				this.#loggedFreshLineId = null
+			},
+			options: this.options,
+			state: this
 		}
 
-		this._stdout = createVirtualStream(this.#base_console?._stdout || process.stdout)
-		this._stderr = createVirtualStream(this.#base_console?._stderr || process.stderr)
+		this._stdout = new VirtualStream(this.#base_console?._stdout || process.stdout, context)
+		this._stderr = new VirtualStream(this.#base_console?._stderr || process.stderr, context)
 	}
 
 	/**

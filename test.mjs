@@ -40,6 +40,19 @@ async function runTest() {
 		const injectionPayload = '"><script>alert("pwned")</script><span style="'
 		console.log('%cInjection Test', injectionPayload)
 		console.log('Attempting to inject a script tag: %s', '<script>alert("oops")</script>')
+
+		// 6. 炒饭测试
+		console.log('\n--- [6. Special Cases] ---')
+		console.log('%s', Object.create(null))
+		console.log('%s', new Date())
+		const a = {}
+		a.a = a
+		console.log(a)
+		console.log('%_', a)
+		console.log('%f', Symbol('lol'))
+		console.log('%j', Symbol('lol'))
+		console.log('%d', Symbol('lol'))
+		console.log('%o', Symbol('lol'))
 	})
 
 	// --- 验证结果 ---

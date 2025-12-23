@@ -3,28 +3,28 @@ const module = await import(globalThis.document ? './browser.mjs' : './node.mjs'
 /**
  * @type {AsyncLocalStorage}
  */
-export const consoleAsyncStorage = module.consoleAsyncStorage
+export const { consoleAsyncStorage } = module
 /**
  * @type {typeof VirtualConsole}
  */
-export const VirtualConsole = module.VirtualConsole
+export const { VirtualConsole } = module
 /**
  * @type {VirtualConsole}
  */
-export const defaultConsole = module.defaultConsole
+export const { defaultConsole } = module
 /**
  * @type {object}
  */
-export const globalConsoleAdditionalProperties = module.globalConsoleAdditionalProperties
+export const { globalConsoleAdditionalProperties } = module
 /**
  * @type {function}
  */
-export const setGlobalConsoleReflect = module.setGlobalConsoleReflect
+export const { setGlobalConsoleReflect } = module
 /**
  * @type {function}
  */
-export const getGlobalConsoleReflect = module.getGlobalConsoleReflect
+export const { getGlobalConsoleReflect } = module
 /**
  * @type {VirtualConsole}
  */
-export const console = module.console
+export const { console } = module

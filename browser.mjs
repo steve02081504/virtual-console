@@ -1,6 +1,6 @@
 import { FullProxy } from 'full-proxy'
 
-import { argsToHtml } from './util.mjs'
+import { argsToHtml, safeString, circularToString } from './util.mjs'
 
 /**
  * 存储原始的浏览器 console 对象。
@@ -23,14 +23,14 @@ function formatArgs(args) {
 				return JSON.stringify(arg, null, '\t')
 			}
 			catch {
-				return String(arg)
+				return safeString(arg)
 			}
 		}).join(' ')
 
 	let output = ''
 	let argIndex = 1
 	let lastIndex = 0
-	const regex = /%[sdifoOc%]/g
+	const regex = /%[%Ocdfijos]/g
 	let match
 
 	while ((match = regex.exec(format)) !== null) {
@@ -52,7 +52,7 @@ function formatArgs(args) {
 			case '%c':
 				break
 			case '%s':
-				output += String(arg)
+				output += safeString(arg)
 				break
 			case '%d':
 			case '%i':
@@ -63,8 +63,10 @@ function formatArgs(args) {
 				break
 			case '%o':
 			case '%O':
+				return circularToString(arg)
+			case '%j':
 				try { output += JSON.stringify(arg, null, '\t') }
-				catch { output += String(arg) }
+				catch { output += safeString(arg) }
 				break
 		}
 	}
@@ -76,9 +78,9 @@ function formatArgs(args) {
 		if (arg instanceof Error && arg.stack) output += arg.stack
 		else if ((arg === null || arg instanceof Object) && !(arg instanceof Function))
 			try { output += JSON.stringify(arg, null, '\t') }
-			catch { output += String(arg) }
+			catch { output += safeString(arg) }
 
-		else output += String(arg)
+		else output += safeString(arg)
 	}
 
 	return output
@@ -110,7 +112,8 @@ export class VirtualConsole {
 	 * @param {Console} [options.base_console=window.console] - 用于 realConsoleOutput 的底层控制台实例。
 	 */
 	constructor(options = {}) {
-		this.#base_console = options.base_console || originalConsole
+		options = { ...options }
+		this.#base_console = options.base_console || consoleReflect()
 		delete options.base_console
 
 		this.options = {
