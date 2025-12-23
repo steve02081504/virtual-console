@@ -7,7 +7,7 @@ const ansi_up = new AnsiUp()
  * @param {string} str - 要转义的字符串。
  * @returns {string} 转义后的字符串。
  */
-function escapeHtml(str) {
+export function escapeHtml(str) {
 	return str.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 

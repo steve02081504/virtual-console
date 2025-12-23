@@ -1,6 +1,6 @@
 import { FullProxy } from 'full-proxy'
 
-import { argsToHtml, safeString, circularToString } from './util.mjs'
+import { argsToHtml, safeString, circularToString, escapeHtml } from './util.mjs'
 
 /**
  * 存储原始的浏览器 console 对象。
@@ -123,7 +123,7 @@ export class VirtualConsole {
 			...options,
 		}
 
-		const methods = ['log', 'info', 'warn', 'debug', 'error', 'table', 'dir', 'assert', 'count', 'countReset', 'time', 'timeLog', 'timeEnd', 'group', 'groupCollapsed', 'groupEnd']
+		const methods = ['log', 'info', 'warn', 'debug', 'error', 'table', 'dir', 'assert', 'count', 'countReset', 'time', 'timeLog', 'timeEnd', 'group', 'groupCollapsed', 'groupEnd', 'trace']
 		for (const method of methods)
 			if (this.#base_console[method] instanceof Function)
 				/**
@@ -138,6 +138,12 @@ export class VirtualConsole {
 					if (this.options.recordOutput) {
 						this.outputs += formatArgs(args) + '\n'
 						this.outputsHtml += argsToHtml(args) + '<br/>\n'
+
+						if (method == 'trace') {
+							const stack = new Error().stack || '\nNot available'
+							this.outputs += stack.slice(stack.indexOf('\n') + 1) + '\n'
+							this.outputsHtml += escapeHtml(stack.slice(stack.indexOf('\n') + 1)) + '<br/>\n'
+						}
 					}
 
 					// 实际输出
@@ -202,7 +208,6 @@ export class VirtualConsole {
 		this.outputsHtml = ''
 		if (this.options.realConsoleOutput)
 			this.#base_console.clear()
-
 	}
 }
 
