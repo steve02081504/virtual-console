@@ -78,30 +78,26 @@ class VirtualStream extends Writable {
 	 * @param {{ outputs: string }} context.state - 虚拟控制台的状态对象，包含 outputs 属性。
 	 */
 	constructor(targetStream, context) {
+		const shouldEscapeRealConsoleOutput = !(targetStream instanceof VirtualStream) && targetStream.isTTY
 		super({
 			/**
 			 * 写入数据到虚拟流。
 			 * @param {Buffer | string} chunk - 要写入的数据块。
-			 * @param {string} _encoding - 编码格式（未使用，统一用 utf8）。
+			 * @param {string} encoding - 编码格式。
 			 * @param {() => void} callback - 写入完成的回调函数。
 			 */
-			write: (chunk, _encoding, callback) => {
-			 context.onWrite()
+			write: (chunk, encoding, callback) => {
+				context.onWrite()
 
-			 // 将 chunk 转换为字符串
-			 let str = typeof chunk === 'string' ? chunk : chunk.toString()
-
-			 // 将独立的 \n 转换为 \r\n，确保在所有终端中正确换行并回到行首
-			 // 使用 split/join 避免正则表达式控制字符问题
-			 const placeholder = '<<CRLF_PLACEHOLDER>>'
-			 str = str.split('\r\n').join(placeholder).split('\n').join('\r\n').split(placeholder).join('\r\n')
-
-			 if (context.options.recordOutput)
-			 	context.state.outputs += str
-			 if (context.options.realConsoleOutput)
-			 	targetStream.write(str, 'utf8', callback)
-			 else
-			 	callback()
+				if (context.options.recordOutput)
+					context.state.outputs += chunk.toString()
+				if (context.options.realConsoleOutput) {
+					if (shouldEscapeRealConsoleOutput)
+						chunk = `${chunk}`.replace(/(?<!\r)\n/g, '\r\n')
+					targetStream.write(chunk, encoding, callback)
+				}
+				else
+					callback()
 			},
 		})
 
@@ -229,6 +225,8 @@ export class VirtualConsole extends Console {
 	 */
 	constructor(options = {}) {
 		super(new Writable({ /** 啥也不干  */ write: () => { } }), new Writable({ /** 啥也不干  */ write: () => { } }))
+		for (const property of ['_stdout', '_stderr', '_ignoreErrors'])
+			delete this[property] // 因为父类的实例属性会遮蔽子类的getter/setter，所以需要删除这些字段
 
 		const base_console = options.base_console || consoleReflect()
 		delete options.base_console
@@ -253,10 +251,9 @@ export class VirtualConsole extends Console {
 			this[method] = (...args) => {
 				if (method == 'error' && this.options.error_handler && args.length === 1 && args[0] instanceof Error) return this.options.error_handler(args[0])
 				if (this.options.recordOutput) this.outputsHtml += argsToHtml(args) + '<br/>\n'
-				// 始终使用 originalMethod（Console 类的方法），让所有输出都经过 VirtualStream
-				// 这确保了换行符转换逻辑的一致性，避免混用不同的输出路径导致终端状态混乱
+				if (!this.options.realConsoleOutput || this.options.recordOutput) return originalMethod.apply(this, args)
 				this.#loggedFreshLineId = null
-				return originalMethod.apply(this, args)
+				return this.#base_console[method](...args)
 			}
 		}
 	}
@@ -324,39 +321,8 @@ export class VirtualConsole extends Console {
 	 */
 	set base_console(value) {
 		this.#base_console = value
-
-		// 获取目标流
-		const stdoutTarget = this.#base_console?._stdout || process.stdout
-		const stderrTarget = this.#base_console?._stderr || process.stderr
-		const context = this.#getStreamContext()
-
-		// 创建 VirtualStream 并直接设置实例属性
-		// 这会覆盖父类 Console 在构造函数中设置的 _stdout/_stderr 实例属性
-		// 不能只使用 setter 设置私有属性，因为父类的实例属性会遮蔽子类的 getter/setter
-		this.#_stdout = new VirtualStream(stdoutTarget, context)
-		this.#_stderr = new VirtualStream(stderrTarget, context)
-
-		// 直接覆盖父类设置的实例属性，确保 Console.log 等方法使用我们的 VirtualStream
-		Object.defineProperty(this, '_stdout', {
-			get: () => this.#_stdout,
-			set: (v) => {
-				const ctx = this.#getStreamContext()
-				const target = v instanceof VirtualStream ? v.targetStream : v
-				this.#_stdout = new VirtualStream(target || process.stdout, ctx)
-			},
-			configurable: true,
-			enumerable: true
-		})
-		Object.defineProperty(this, '_stderr', {
-			get: () => this.#_stderr,
-			set: (v) => {
-				const ctx = this.#getStreamContext()
-				const target = v instanceof VirtualStream ? v.targetStream : v
-				this.#_stderr = new VirtualStream(target || process.stderr, ctx)
-			},
-			configurable: true,
-			enumerable: true
-		})
+		this._stdout = this.#base_console?._stdout || process.stdout
+		this._stderr = this.#base_console?._stderr || process.stderr
 	}
 
 	/**
@@ -375,8 +341,7 @@ export class VirtualConsole extends Console {
 	 */
 	freshLine(id, ...args) {
 		if (this.options.supportsAnsi && this.#loggedFreshLineId === id)
-			// cursorPrevLine 会同时向上移动一行并回到行首（比 cursorUp 更可靠）
-			this._stdout.write(ansiEscapes.cursorPrevLine + ansiEscapes.eraseLine)
+			this._stdout.write(ansiEscapes.cursorUp(1) + ansiEscapes.eraseLine)
 
 		this.log(...args)
 		this.#loggedFreshLineId = id
