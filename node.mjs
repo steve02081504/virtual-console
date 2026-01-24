@@ -78,6 +78,7 @@ class VirtualStream extends Writable {
 	 * @param {{ outputs: string }} context.state - 虚拟控制台的状态对象，包含 outputs 属性。
 	 */
 	constructor(targetStream, context) {
+		const shouldEscapeRealConsoleOutput = !(targetStream instanceof VirtualStream) && targetStream.isTTY
 		super({
 			/**
 			 * 写入数据到虚拟流。
@@ -90,8 +91,15 @@ class VirtualStream extends Writable {
 
 				if (context.options.recordOutput)
 					context.state.outputs += chunk.toString()
-				if (context.options.realConsoleOutput)
+				if (context.options.realConsoleOutput) {
+					if (shouldEscapeRealConsoleOutput) {
+						chunk = `${chunk}`
+						if (this.#lastChunkEndsWithCR && chunk.startsWith('\n')) chunk = chunk.slice(1)
+						this.#lastChunkEndsWithCR = chunk.endsWith('\r')
+						chunk = chunk.replace(/\r\n|\n|\r/g, '\r\n')
+					}
 					targetStream.write(chunk, encoding, callback)
+				}
 				else
 					callback()
 			},
@@ -112,6 +120,8 @@ class VirtualStream extends Writable {
 
 	/** @private @type {NodeJS.WritableStream} - 目标流 */
 	#targetStream
+	/** @private @type {boolean} - 上一次行末是否以 CR 结尾 */
+	#lastChunkEndsWithCR = false
 
 	/**
 	 * 判断目标流是否为 TTY
@@ -221,6 +231,8 @@ export class VirtualConsole extends Console {
 	 */
 	constructor(options = {}) {
 		super(new Writable({ /** 啥也不干  */ write: () => { } }), new Writable({ /** 啥也不干  */ write: () => { } }))
+		for (const property of ['_stdout', '_stderr'])
+			delete this[property] // 因为父类的实例属性会遮蔽子类的getter/setter，所以需要删除这些字段
 
 		const base_console = options.base_console || consoleReflect()
 		delete options.base_console
