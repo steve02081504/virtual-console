@@ -86,14 +86,22 @@ class VirtualStream extends Writable {
 			 * @param {() => void} callback - 写入完成的回调函数。
 			 */
 			write: (chunk, encoding, callback) => {
-				context.onWrite()
+			 context.onWrite()
 
-				if (context.options.recordOutput)
-					context.state.outputs += chunk.toString()
-				if (context.options.realConsoleOutput)
-					targetStream.write(chunk, encoding, callback)
-				else
-					callback()
+			 // 将 chunk 转换为字符串
+			 let str = typeof chunk === 'string' ? chunk : chunk.toString()
+
+			 // 将独立的 \n 转换为 \r\n，确保在所有终端中正确换行并回到行首
+			 // 使用 split/join 避免正则表达式控制字符问题
+			 const placeholder = '<<CRLF_PLACEHOLDER>>'
+			 str = str.split('\r\n').join(placeholder).split('\n').join('\r\n').split(placeholder).join('\r\n')
+
+			 if (context.options.recordOutput)
+			 	context.state.outputs += str
+			 if (context.options.realConsoleOutput)
+			 	targetStream.write(str, encoding, callback)
+			 else
+			 	callback()
 			},
 		})
 
