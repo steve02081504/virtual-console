@@ -1,4 +1,3 @@
-import type { AsyncLocalStorage } from 'node:async_hooks'
 import type { Console } from 'node:console'
 import type { Writable } from 'node:stream'
 
@@ -13,7 +12,7 @@ export interface VirtualConsoleOptions {
 	/** 专门处理单个 Error 对象的错误处理器 */
 	error_handler?: ((error: Error) => void) | null
 	/** 用于 realConsoleOutput 的底层控制台实例 */
-	base_console?: Console
+	base_console?: VirtualConsole | Console
 }
 
 /**
@@ -21,7 +20,7 @@ export interface VirtualConsoleOptions {
  */
 export interface ConsoleReflect {
 	/** 从默认控制台获取当前控制台对象 */
-	Reflect: () => Console
+	Reflect: () => VirtualConsole
 	/** 设置当前控制台对象的函数 */
 	ReflectSet: (value: VirtualConsole) => void
 	/** 在新的异步上下文中执行函数的函数 */
@@ -56,10 +55,10 @@ export class VirtualConsole extends Console {
 	outputsHtml: string
 	/** 最终合并后的配置项 */
 	options: Required<Omit<VirtualConsoleOptions, 'base_console'>> & {
-		base_console?: Console
+		base_console?: VirtualConsole | Console
 	}
 	/** 用于 realConsoleOutput 的底层控制台实例 */
-	base_console: Console
+	base_console: VirtualConsole | Console
 
 	constructor(options?: VirtualConsoleOptions)
 
@@ -98,7 +97,7 @@ export const globalConsoleAdditionalProperties: Record<string, unknown>
  * @param ReflectRun 在新的异步上下文中执行函数的函数
  */
 export function setGlobalConsoleReflect(
-	Reflect: (defaultConsole: VirtualConsole) => Console,
+	Reflect: (defaultConsole: VirtualConsole) => VirtualConsole,
 	ReflectSet: (value: VirtualConsole) => void,
 	ReflectRun: <T>(value: VirtualConsole, fn: () => T | Promise<T>) => Promise<T>
 ): void
@@ -107,4 +106,9 @@ export function setGlobalConsoleReflect(
 export function getGlobalConsoleReflect(): ConsoleReflect
 
 /** 全局控制台实例（代理对象，委托给当前活动的虚拟控制台） */
-export const console: Console
+export const console: VirtualConsole
+
+declare global {
+	/** 全局控制台实例 */
+	var console: VirtualConsole
+}

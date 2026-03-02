@@ -1,4 +1,4 @@
-import { VirtualConsole } from './main.mjs'
+import { VirtualConsole } from '@steve02081504/virtual-console'
 
 /**
  * 测试 VirtualConsole 的各种渲染功能
