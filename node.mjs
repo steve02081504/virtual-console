@@ -152,6 +152,14 @@ class VirtualStream extends Writable {
 	hasColors() {
 		return this.#targetStream.hasColors()
 	}
+
+	/**
+	 * 获取底层目标流。
+	 * @returns {NodeJS.WritableStream} 底层目标流。
+	 */
+	get targetStream() {
+		return this.#targetStream
+	}
 }
 
 /**
@@ -194,6 +202,12 @@ export class VirtualConsole extends Console {
 	/** @type {Console} - 用于 realConsoleOutput 的底层控制台实例 */
 	#base_console
 
+	/** @private @type {VirtualStream} - 标准输出流 */
+	#_stdout
+
+	/** @private @type {VirtualStream} - 标准错误流 */
+	#_stderr
+
 	/** @private @type {string | null} - 用于 freshLine 功能，记录上一次 freshLine 的 ID */
 	#loggedFreshLineId = null
 
@@ -207,6 +221,8 @@ export class VirtualConsole extends Console {
 	 */
 	constructor(options = {}) {
 		super(new Writable({ /** 啥也不干  */ write: () => { } }), new Writable({ /** 啥也不干  */ write: () => { } }))
+		for (const property of ['_stdout', '_stderr'])
+			delete this[property] // 因为父类的实例属性会遮蔽子类的getter/setter，所以需要删除这些字段
 
 		const base_console = options.base_console || consoleReflect()
 		delete options.base_console
@@ -239,22 +255,11 @@ export class VirtualConsole extends Console {
 	}
 
 	/**
-	 * 获取用于 realConsoleOutput 的底层控制台实例。
-	 * @returns {Console} 底层控制台实例。
+	 * 获取虚拟控制台的上下文对象，用于创建 VirtualStream。
+	 * @returns {object} 上下文对象。
 	 */
-	get base_console() {
-		return this.#base_console
-	}
-
-	/**
-	 * 设置用于 realConsoleOutput 的底层控制台实例。
-	 * @param {Console} value - 底层控制台实例。
-	 * @returns {void}
-	 */
-	set base_console(value) {
-		this.#base_console = value
-
-		const context = {
+	#getStreamContext() {
+		return {
 			/**
 			 * 写入完成时的回调函数，用于重置 loggedFreshLineId。
 			 * @returns {void}
@@ -265,9 +270,63 @@ export class VirtualConsole extends Console {
 			options: this.options,
 			state: this
 		}
+	}
 
-		this._stdout = new VirtualStream(this.#base_console?._stdout || process.stdout, context)
-		this._stderr = new VirtualStream(this.#base_console?._stderr || process.stderr, context)
+	/**
+	 * 获取标准输出流。
+	 * @returns {VirtualStream} 标准输出流。
+	 */
+	get _stdout() {
+		return this.#_stdout
+	}
+
+	/**
+	 * 设置标准输出流，自动将其包装为 VirtualStream。
+	 * @param {NodeJS.WritableStream | VirtualStream} value - 要设置的流。
+	 * @returns {void}
+	 */
+	set _stdout(value) {
+		const context = this.#getStreamContext()
+		const targetStream = value?.targetStream || value || process.stdout
+		this.#_stdout = new VirtualStream(targetStream, context)
+	}
+
+	/**
+	 * 获取标准错误流。
+	 * @returns {VirtualStream} 标准错误流。
+	 */
+	get _stderr() {
+		return this.#_stderr
+	}
+
+	/**
+	 * 设置标准错误流，自动将其包装为 VirtualStream。
+	 * @param {NodeJS.WritableStream | VirtualStream} value - 要设置的流。
+	 * @returns {void}
+	 */
+	set _stderr(value) {
+		const context = this.#getStreamContext()
+		const targetStream = value?.targetStream || value || process.stderr
+		this.#_stderr = new VirtualStream(targetStream, context)
+	}
+
+	/**
+	 * 设置用于 realConsoleOutput 的底层控制台实例。
+	 * @param {Console} value - 底层控制台实例。
+	 * @returns {void}
+	 */
+	set base_console(value) {
+		this.#base_console = value || globalThis.console
+		this._stdout = this.#base_console?._stdout
+		this._stderr = this.#base_console?._stderr
+	}
+
+	/**
+	 * 获取用于 realConsoleOutput 的底层控制台实例。
+	 * @returns {Console} 底层控制台实例。
+	 */
+	get base_console() {
+		return this.#base_console
 	}
 
 	/**
