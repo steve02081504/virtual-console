@@ -1,9 +1,35 @@
 {
 	"name": "@steve02081504/virtual-console",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"description": "A virtual console for capturing and manipulating terminal output.",
 	"main": "main.mjs",
 	"type": "module",
+	"exports": {
+		".": {
+			"browser": {
+				"types": "./browser.d.mts",
+				"default": "./browser.mjs"
+			},
+			"node": {
+				"types": "./node.d.mts",
+				"default": "./node.mjs"
+			},
+			"types": "./main.d.mts",
+			"default": "./main.mjs"
+		},
+		"./node": {
+			"types": "./node.d.mts",
+			"default": "./node.mjs"
+		},
+		"./browser": {
+			"types": "./browser.d.mts",
+			"default": "./browser.mjs"
+		}
+	},
+	"types": "./main.d.mts",
+	"scripts": {
+		"test": "node test.mjs"
+	},
 	"keywords": [
 		"console",
 		"virtual",
@@ -17,9 +43,9 @@
 	},
 	"homepage": "https://github.com/steve02081504/virtual-console#readme",
 	"dependencies": {
+		"ansi_up": "latest",
 		"ansi-escapes": "latest",
 		"full-proxy": "latest",
-		"supports-ansi": "latest",
-		"ansi_up": "latest"
+		"supports-ansi": "latest"
 	}
 }
