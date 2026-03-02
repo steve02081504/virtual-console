@@ -402,10 +402,18 @@ export function getGlobalConsoleReflect() {
 		ReflectRun: consoleReflectRun
 	}
 }
+
+/**
+ * 代理对象的基础对象，避免重复的内存分配。
+ * @type {object}
+ */
+const proxyBase = {
+	...originalConsole,
+}
 /**
  * 全局控制台实例。
  */
-export const console = globalThis.console = new FullProxy(() => Object.assign({}, globalConsoleAdditionalProperties, consoleReflect()), {
+export const console = globalThis.console = new FullProxy(() => Object.assign(proxyBase, globalConsoleAdditionalProperties, consoleReflect()), {
 	/**
 	 * 设置属性时的处理逻辑。
 	 * @param {object} target - 目标对象。

@@ -283,10 +283,17 @@ export function getGlobalConsoleReflect() {
 }
 
 /**
+ * 代理对象的基础对象，避免重复的内存分配。
+ * @type {object}
+ */
+const proxyBase = {
+	...originalConsole,
+}
+/**
  * 导出一个代理对象作为全局 console，它将所有操作委托给当前的活动控制台。
  * 这与原始 Node.js 版本的实现完全相同。
  */
-export const console = globalThis.console = new FullProxy(() => Object.assign({}, globalConsoleAdditionalProperties, consoleReflect()), {
+export const console = globalThis.console = new FullProxy(() => Object.assign(proxyBase, globalConsoleAdditionalProperties, consoleReflect()), {
 	/**
 	 * 设置属性时的处理逻辑。
 	 * @param {object} target - 目标对象。

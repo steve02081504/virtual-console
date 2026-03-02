@@ -4,6 +4,7 @@ import { VirtualConsole } from '@steve02081504/virtual-console'
  * 测试 VirtualConsole 的各种渲染功能
  */
 async function runTest() {
+	console.profile('test')
 	console.log('🚀 开始测试 VirtualConsole 渲染功能...\n')
 
 	// 创建实例，不输出到真实控制台，只记录
@@ -66,6 +67,7 @@ async function runTest() {
 	console.log(vc.outputsHtml)
 
 	console.log('\n🏁 测试结束')
+	console.profileEnd('test')
 }
 
 runTest()
