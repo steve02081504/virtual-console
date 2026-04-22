@@ -224,12 +224,12 @@ export class VirtualConsole extends Console {
 		for (const property of ['_stdout', '_stderr'])
 			delete this[property] // 因为父类的实例属性会遮蔽子类的getter/setter，所以需要删除这些字段
 
-		const base_console = options.base_console || consoleReflect()
+		const base_console = options.base_console ?? consoleReflect()
 		delete options.base_console
 		this.options = {
 			realConsoleOutput: false,
 			recordOutput: true,
-			supportsAnsi: base_console.options?.supportsAnsi || supportsAnsi,
+			supportsAnsi: base_console.options?.supportsAnsi ?? supportsAnsi,
 			error_handler: null,
 			...options,
 		}
