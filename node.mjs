@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { Buffer } from 'node:buffer'
 import { Console } from 'node:console'
 import process from 'node:process'
 import { Writable } from 'node:stream'
@@ -7,7 +8,18 @@ import ansiEscapes from 'ansi-escapes'
 import { FullProxy } from 'full-proxy'
 import supportsAnsi from 'supports-ansi'
 
-import { argsToHtml } from './util.mjs'
+import { LogEntry, TraceLogEntry, formatArgs, getStackInfo } from './util.mjs'
+
+/**
+ * 未被代理的标准输出流。
+ * @type {NodeJS.WritableStream}
+ */
+const stdout = process.stdout
+/**
+ * 未被代理的标准错误流。
+ * @type {NodeJS.WritableStream}
+ */
+const stderr = process.stderr
 
 /**
  * 全局异步存储，用于管理控制台上下文。
@@ -63,6 +75,7 @@ function getListenerInfo(stream) {
 	return listenerInfo
 }
 
+
 /**
  * 虚拟流类，用于创建虚拟控制台流。
  * @augments {Writable}
@@ -70,6 +83,7 @@ function getListenerInfo(stream) {
 class VirtualStream extends Writable {
 	/**
 	 * @param {NodeJS.WritableStream} targetStream - 目标流。
+	 * @param {string} streamName - 流名称。
 	 * @param {object} context - 虚拟控制台上下文。
 	 * @param {() => void} context.onWrite - 写入时的回调函数，用于重置 loggedFreshLineId。
 	 * @param {object} context.options - 虚拟控制台的配置选项。
@@ -77,7 +91,7 @@ class VirtualStream extends Writable {
 	 * @param {boolean} context.options.realConsoleOutput - 是否输出到真实控制台。
 	 * @param {{ outputs: string }} context.state - 虚拟控制台的状态对象，包含 outputs 属性。
 	 */
-	constructor(targetStream, context) {
+	constructor(targetStream, streamName, context) {
 		super({
 			/**
 			 * 写入数据到虚拟流。
@@ -86,14 +100,20 @@ class VirtualStream extends Writable {
 			 * @param {() => void} callback - 写入完成的回调函数。
 			 */
 			write: (chunk, encoding, callback) => {
-				context.onWrite()
+				context.onWrite(chunk, encoding, streamName)
 
-				if (context.options.recordOutput)
-					context.state.outputs += chunk.toString()
+				if (context.options.recordOutput) try {
+					context.state.ignoreStackFrameNum++
+					const text = chunk instanceof Buffer ? chunk.toString(encoding === 'buffer' ? 'utf8' : encoding) : String(chunk)
+					const lastEntry = context.state.outputEntries[context.state.outputEntries.length - 1]
+					if (lastEntry?.level == streamName)
+						lastEntry.args[0] += text
+					else
+						context.addEntry(streamName, [text], getStackInfo(context.state.ignoreStackFrameNum))
+				} finally { context.state.ignoreStackFrameNum-- }
 				if (context.options.realConsoleOutput)
 					targetStream.write(chunk, encoding, callback)
-				else
-					callback()
+				else callback()
 			},
 		})
 
@@ -191,10 +211,21 @@ export class VirtualConsole extends Console {
 		if (fn) return consoleReflectRun(this, fn)
 		else consoleReflectSet(this)
 	}
-	/** @type {string} - 捕获的所有输出 */
-	outputs = ''
-	/** @type {string} - 捕获的所有输出 (HTML) */
-	outputsHtml = ''
+
+	/** @type {number} - 忽略的堆栈帧数，用于对输出函数进行包装时忽略部分堆栈来优化调试流程 */
+	ignoreStackFrameNum = 0
+	/**
+	 * 获取捕获的所有输出
+	 * @returns {string} 捕获的所有输出
+	 */
+	get outputs() { return this.outputEntries.join('\n') }
+	/**
+	 * 获取捕获的所有输出 (HTML)
+	 * @returns {string} 捕获的所有输出 (HTML)
+	 */
+	get outputsHtml() { return this.outputEntries.map(entry => entry.toHtml()).join('<br/>\n') }
+	/** @type {object[]} - 捕获的所有输出对象数组 */
+	outputEntries = []
 
 	/** @type {object} - 最终合并后的配置项 */
 	options
@@ -211,12 +242,14 @@ export class VirtualConsole extends Console {
 	/** @private @type {string | null} - 用于 freshLine 功能，记录上一次 freshLine 的 ID */
 	#loggedFreshLineId = null
 
+	/** @private @type {object} - 流上下文 */
+	#streamContext
+
 	/**
 	 * @param {object} [options={}] - 配置选项。
 	 * @param {boolean} [options.realConsoleOutput=false] - 如果为 true，则在捕获输出的同时，也调用底层控制台进行实际输出。
 	 * @param {boolean} [options.recordOutput=true] - 如果为 true，则捕获输出并保存在 outputs 属性中。
 	 * @param {boolean} [options.supportsAnsi] - 如果为 true, 则启用 ANSI 转义序列支持。
-	 * @param {function(Error): void} [options.error_handler=null] - 一个专门处理单个 Error 对象的错误处理器。
 	 * @param {Console} [options.base_console=console] - 用于 realConsoleOutput 的底层控制台实例。
 	 */
 	constructor(options = {}) {
@@ -230,12 +263,35 @@ export class VirtualConsole extends Console {
 			realConsoleOutput: false,
 			recordOutput: true,
 			supportsAnsi: base_console.options?.supportsAnsi ?? supportsAnsi,
-			error_handler: null,
+			maxLogEntries: Infinity,
+			on_log_entry: null,
 			...options,
 		}
+		this.#streamContext = {
+			/**
+			 * 写入发生前的回调函数，用于设置一些东西。
+			 * @param {Buffer | string} chunk - 要写入的数据块。
+			 * @param {string} encoding - 编码格式。
+			 * @param {string} stream_name - 流名称。
+			 * @returns {void}
+			 */
+			onWrite: (chunk, encoding, stream_name) => {
+				this.#loggedFreshLineId = null
+			},
+			/**
+			 * 在流写入路径中补录一条结构化日志。
+			 * @param {string} level - 目标级别，通常为 stdout/stderr。
+			 * @param {any[]} args - 日志参数数组，按 LogEntry 约定存储。
+			 * @param {import('./util.mjs').StackFrame[] | undefined} [stack] - 可选预采集栈；未传时由 #addEntry 自动采集。
+			 * @returns {LogEntry} 已写入缓冲区的日志条目。
+			 */
+			addEntry: (level, args, stack) => this.#addEntry(level, args, stack),
+			options: this.options,
+			state: this
+		}
 		this.base_console = base_console
-		this.freshLine = this.freshLine.bind(this)
-		this.clear = this.clear.bind(this)
+		for (const method of ['freshLine', 'clear', 'write_as'])
+			this[method] = this[method].bind(this)
 		for (const method of ['log', 'info', 'warn', 'debug', 'error']) {
 			if (!this[method]) continue
 			const originalMethod = this[method]
@@ -245,31 +301,59 @@ export class VirtualConsole extends Console {
 			 * @returns {void}
 			 */
 			this[method] = (...args) => {
-				if (method == 'error' && this.options.error_handler && args.length === 1 && args[0] instanceof Error) return this.options.error_handler(args[0])
-				if (this.options.recordOutput) this.outputsHtml += argsToHtml(args) + '<br/>\n'
-				if (!this.options.realConsoleOutput || this.options.recordOutput) return originalMethod.apply(this, args)
-				this.#loggedFreshLineId = null
-				return this.#base_console[method](...args)
+				const record = this.options.recordOutput
+				try {
+					// +3: getStackInfo + #addEntry + 此箭头函数自身，共 3 帧需跳过
+					this.ignoreStackFrameNum += 3
+					if (record) {
+						if (method === 'trace') this.#addTraceEntry(args)
+						else this.#addEntry(method, args)
+						this.options.recordOutput = false // 避免stream写入时被重复记录
+					}
+					if (!this.options.realConsoleOutput) return originalMethod.apply(this, args)
+					this.#loggedFreshLineId = null
+					return this.#base_console[method](...args)
+				} finally {
+					this.ignoreStackFrameNum -= 3
+					if (record) this.options.recordOutput = true
+				}
 			}
 		}
 	}
 
 	/**
-	 * 获取虚拟控制台的上下文对象，用于创建 VirtualStream。
-	 * @returns {object} 上下文对象。
+	 * 创建日志条目并追加到 outputEntries，自动维护上限并触发回调。
+	 * stack 缺省时使用 this.ignoreStackFrameNum 自动采集。
+	 * @param {string} level - 日志级别，例如 log/warn/error/stdout/stderr。
+	 * @param {any[]} args - 与 console/stream 路径一致的原始参数数组。
+	 * @param {import('./util.mjs').StackFrame[] | undefined} [stack] - 可选预采集调用栈；未传时按当前 skip 配置自动采集。
+	 * @returns {LogEntry} 已写入缓冲区的日志条目对象。
 	 */
-	#getStreamContext() {
-		return {
-			/**
-			 * 写入完成时的回调函数，用于重置 loggedFreshLineId。
-			 * @returns {void}
-			 */
-			onWrite: () => {
-				this.#loggedFreshLineId = null
-			},
-			options: this.options,
-			state: this
-		}
+	#addEntry(level, args, stack) {
+		return this.#pushEntry(new LogEntry(level, args, stack ?? getStackInfo(this.ignoreStackFrameNum)))
+	}
+
+	/**
+	 * 创建 TraceLogEntry 并追加，用于 console.trace()。
+	 * 将宿主控制台的 supportsAnsi 传入条目，以便 toString() 按实际输出能力决定是否启用超链接序列。
+	 * @param {any[]} args - trace 的业务参数（不包含栈文本）。
+	 * @returns {TraceLogEntry} 已写入缓冲区的 trace 条目；其 toString/toHtml 会附加栈信息。
+	 */
+	#addTraceEntry(args) {
+		return this.#pushEntry(new TraceLogEntry('trace', args, getStackInfo(this.ignoreStackFrameNum), this.options.supportsAnsi))
+	}
+
+	/**
+	 * 将已构建的条目推入 outputEntries，维护上限并触发回调。
+	 * @template {LogEntry} T
+	 * @param {T} entry - 已构造完成的日志条目实例。
+	 * @returns {T} 原样返回该条目，便于调用侧继续链式使用或断言。
+	 */
+	#pushEntry(entry) {
+		this.outputEntries.push(entry)
+		if (this.outputEntries.length > this.options.maxLogEntries) this.outputEntries.shift()
+		this.options.on_log_entry?.(entry)
+		return entry
 	}
 
 	/**
@@ -286,9 +370,9 @@ export class VirtualConsole extends Console {
 	 * @returns {void}
 	 */
 	set _stdout(value) {
-		const context = this.#getStreamContext()
-		const targetStream = value?.targetStream || value || process.stdout
-		this.#_stdout = new VirtualStream(targetStream, context)
+		const context = this.#streamContext
+		const targetStream = value?.targetStream || value || stdout
+		this.#_stdout = new VirtualStream(targetStream, 'stdout', context)
 	}
 
 	/**
@@ -305,9 +389,9 @@ export class VirtualConsole extends Console {
 	 * @returns {void}
 	 */
 	set _stderr(value) {
-		const context = this.#getStreamContext()
-		const targetStream = value?.targetStream || value || process.stderr
-		this.#_stderr = new VirtualStream(targetStream, context)
+		const context = this.#streamContext
+		const targetStream = value?.targetStream || value || stderr
+		this.#_stderr = new VirtualStream(targetStream, 'stderr', context)
 	}
 
 	/**
@@ -339,7 +423,12 @@ export class VirtualConsole extends Console {
 		if (this.options.supportsAnsi && this.#loggedFreshLineId === id)
 			this._stdout.write(ansiEscapes.cursorUp(1) + ansiEscapes.eraseLine)
 
-		this.log(...args)
+		try {
+			this.ignoreStackFrameNum++ // freshLine 自身是额外一层，由 log wrapper 统一处理其余帧
+			this.log(...args)
+		} finally {
+			this.ignoreStackFrameNum--
+		}
 		this.#loggedFreshLineId = id
 	}
 
@@ -349,10 +438,35 @@ export class VirtualConsole extends Console {
 	 */
 	clear() {
 		this.#loggedFreshLineId = null
-		this.outputs = ''
-		this.outputsHtml = ''
+		this.outputEntries = []
 		if (this.options.realConsoleOutput)
 			this.#base_console.clear()
+	}
+
+	/**
+	 * 将写入操作作为指定级别的方法调用，绕过调试器的捕获，但仍然计入输出。
+	 * @param {string} level - 要调用的方法名。
+	 * @param {...any} args - 要输出的内容。
+	 * @returns {void}
+	 */
+	write_as(level, ...args) {
+		if (this.options.recordOutput) try {
+			this.ignoreStackFrameNum += 3 // getStackInfo + #addEntry + write_as 自身
+			this.#addEntry(level, args)
+		} finally {
+			this.ignoreStackFrameNum -= 3
+		}
+		if (this.options.realConsoleOutput) {
+			const content = formatArgs(args)
+			const prevRecord = this.options.recordOutput
+			this.options.recordOutput = false
+			try {
+				if (['warn', 'error'].includes(level)) return this._stderr.write(content)
+				else return this._stdout.write(content)
+			} finally {
+				this.options.recordOutput = prevRecord
+			}
+		}
 	}
 }
 
@@ -427,4 +541,26 @@ export const console = globalThis.console = new FullProxy(() => Object.assign(pr
 		globalConsoleAdditionalProperties[property] = value
 		return true
 	}
+})
+/**
+ * 重定向 process.stdout 到当前全局控制台的 stdout。
+ */
+Object.defineProperty(process, 'stdout', {
+	/**
+	 * 返回当前异步上下文绑定的虚拟 stdout。
+	 * @returns {VirtualStream} 当前上下文中的虚拟标准输出流。
+	 */
+	get: () => consoleReflect()._stdout,
+	configurable: true,
+})
+/**
+ * 重定向 process.stderr 到当前全局控制台的 stderr。
+ */
+Object.defineProperty(process, 'stderr', {
+	/**
+	 * 返回当前异步上下文绑定的虚拟 stderr。
+	 * @returns {VirtualStream} 当前上下文中的虚拟标准错误流。
+	 */
+	get: () => consoleReflect()._stderr,
+	configurable: true,
 })

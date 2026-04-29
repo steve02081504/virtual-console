@@ -1,6 +1,6 @@
 import { FullProxy } from 'full-proxy'
 
-import { argsToHtml, safeString, circularToString, escapeHtml } from './util.mjs'
+import { LogEntry, TraceLogEntry, getStackInfo } from './util.mjs'
 
 /**
  * 存储原始的浏览器 console 对象。
@@ -8,92 +8,21 @@ import { argsToHtml, safeString, circularToString, escapeHtml } from './util.mjs
 const originalConsole = window.console
 
 /**
- * 格式化 console 参数为字符串。
- * @param {any[]} args - console 方法接收的参数数组。
- * @returns {string} 格式化后的单行字符串。
- */
-function formatArgs(args) {
-	if (args.length === 0) return ''
-	const format = args[0]
-	if (format?.constructor !== String)
-		return args.map(arg => {
-			if (Object(arg) instanceof String) return arg
-			if (arg instanceof Error && arg.stack) return arg.stack
-			try {
-				return JSON.stringify(arg, null, '\t')
-			}
-			catch {
-				return safeString(arg)
-			}
-		}).join(' ')
-
-	let output = ''
-	let argIndex = 1
-	let lastIndex = 0
-	const regex = /%[%Ocdfijos]/g
-	let match
-
-	while ((match = regex.exec(format)) !== null) {
-		output += format.slice(lastIndex, match.index)
-		lastIndex = regex.lastIndex
-
-		if (match[0] === '%%') {
-			output += '%'
-			continue
-		}
-
-		if (argIndex >= args.length) {
-			output += match[0]
-			continue
-		}
-
-		const arg = args[argIndex++]
-		switch (match[0]) {
-			case '%c':
-				break
-			case '%s':
-				output += safeString(arg)
-				break
-			case '%d':
-			case '%i':
-				output += String(parseInt(arg))
-				break
-			case '%f':
-				output += String(parseFloat(arg))
-				break
-			case '%o':
-			case '%O':
-				return circularToString(arg)
-			case '%j':
-				try { output += JSON.stringify(arg, null, '\t') }
-				catch { output += safeString(arg) }
-				break
-		}
-	}
-	output += format.slice(lastIndex)
-
-	while (argIndex < args.length) {
-		const arg = args[argIndex++]
-		if (output) output += ' '
-		if (arg instanceof Error && arg.stack) output += arg.stack
-		else if ((arg === null || arg instanceof Object) && !(arg instanceof Function))
-			try { output += JSON.stringify(arg, null, '\t') }
-			catch { output += safeString(arg) }
-
-		else output += safeString(arg)
-	}
-
-	return output
-}
-
-/**
  * 创建一个虚拟控制台，用于捕获输出，同时可以选择性地将输出传递给真实的控制台。
  */
 export class VirtualConsole {
-	/** @type {string} - 捕获的所有输出 */
-	outputs = ''
-	/** @type {string} - 捕获的所有输出 (HTML) */
-	outputsHtml = ''
+	/**
+	 * 获取捕获的所有输出（纯文本）
+	 * @returns {string} 按写入顺序拼接后的纯文本日志，每条之间以换行分隔。
+	 */
+	get outputs() { return this.outputEntries.join('\n') }
+	/**
+	 * 获取捕获的所有输出（HTML）
+	 * @returns {string} 按写入顺序拼接后的 HTML 日志，可直接插入页面展示。
+	 */
+	get outputsHtml() { return this.outputEntries.map(entry => entry.toHtml()).join('<br/>\n') }
+	/** @type {LogEntry[]} - 捕获的所有输出对象数组 */
+	outputEntries = []
 
 	/** @type {object} - 最终合并后的配置项 */
 	options
@@ -104,12 +33,16 @@ export class VirtualConsole {
 	/** @private @type {string | null} - 用于 freshLine 功能，记录上一次 freshLine 的 ID */
 	#loggedFreshLineId = null
 
+	/** @type {number} - 忽略的堆栈帧数，用于在包装函数中跳过内部帧 */
+	ignoreStackFrameNum = 0
+
 	/**
 	 * @param {object} [options={}] - 配置选项。
 	 * @param {boolean} [options.realConsoleOutput=false] - 如果为 true，则在捕获输出的同时，也调用底层控制台进行实际输出。
 	 * @param {boolean} [options.recordOutput=true] - 如果为 true，则捕获输出并保存在 outputs 属性中。
-	 * @param {function(Error): void} [options.error_handler=null] - 一个专门处理单个 Error 对象的错误处理器。
 	 * @param {Console} [options.base_console=window.console] - 用于 realConsoleOutput 的底层控制台实例。
+	 * @param {number} [options.maxLogEntries=Infinity] - 最多保留的日志条目数量。
+	 * @param {function(logEntry): void} [options.on_log_entry=null] - 新增日志条目时的回调。
 	 */
 	constructor(options = {}) {
 		options = { ...options }
@@ -119,7 +52,8 @@ export class VirtualConsole {
 		this.options = {
 			realConsoleOutput: false,
 			recordOutput: true,
-			error_handler: null,
+			maxLogEntries: Infinity,
+			on_log_entry: null,
 			...options,
 		}
 
@@ -132,27 +66,58 @@ export class VirtualConsole {
 				 * @returns {void}
 				 */
 				this[method] = (...args) => {
-					if (method == 'error' && this.options.error_handler && args.length === 1 && args[0] instanceof Error) return this.options.error_handler(args[0])
-					this.#loggedFreshLineId = null // 任何常规输出都会中断 freshLine 序列
+					this.#loggedFreshLineId = null
 
-					if (this.options.recordOutput) {
-						this.outputs += formatArgs(args) + '\n'
-						this.outputsHtml += argsToHtml(args) + '<br/>\n'
-
-						if (method == 'trace') {
-							const stack = new Error().stack || '\nNot available'
-							this.outputs += stack.slice(stack.indexOf('\n') + 1) + '\n'
-							this.outputsHtml += escapeHtml(stack.slice(stack.indexOf('\n') + 1)) + '<br/>\n'
-						}
+					if (this.options.recordOutput) try {
+						// +3: getStackInfo + #addEntry/#addTraceEntry + 此箭头函数自身，共 3 帧需跳过
+						this.ignoreStackFrameNum += 3
+						if (method === 'trace') this.#addTraceEntry(args)
+						else this.#addEntry(method, args)
+					} finally {
+						this.ignoreStackFrameNum -= 3
 					}
 
-					// 实际输出
 					if (this.options.realConsoleOutput)
 						this.#base_console[method](...args)
 				}
 
-		this.freshLine = this.freshLine.bind(this)
-		this.clear = this.clear.bind(this)
+		for (const method of ['freshLine', 'clear', 'write_as'])
+			this[method] = this[method].bind(this)
+	}
+
+	/**
+	 * 创建日志条目并追加到 outputEntries，自动维护上限并触发回调。
+	 * stack 缺省时使用 this.ignoreStackFrameNum 自动采集。
+	 * @param {string} level - 日志级别，例如 log/warn/error。
+	 * @param {any[]} args - 与 console 方法收到的原始参数一致。
+	 * @param {import('./util.mjs').StackFrame[] | undefined} [stack] - 可选的预采集调用栈；未传时按当前 skip 配置自动采集。
+	 * @returns {LogEntry} 已写入缓冲区的日志条目对象。
+	 */
+	#addEntry(level, args, stack) {
+		return this.#pushEntry(new LogEntry(level, args, stack ?? getStackInfo(this.ignoreStackFrameNum)))
+	}
+
+	/**
+	 * 创建 TraceLogEntry 并追加，用于 console.trace()。
+	 * 将宿主控制台的 supportsAnsi 传入条目，以便 toString() 按实际输出能力决定是否启用超链接序列。
+	 * @param {any[]} args - trace 的业务参数（不包含栈文本）。
+	 * @returns {TraceLogEntry} 已写入缓冲区的 trace 条目；其 toString/toHtml 会附加栈信息。
+	 */
+	#addTraceEntry(args) {
+		return this.#pushEntry(new TraceLogEntry('trace', args, getStackInfo(this.ignoreStackFrameNum), this.options.supportsAnsi))
+	}
+
+	/**
+	 * 将已构建的条目推入 outputEntries，维护上限并触发回调。
+	 * @template {LogEntry} T
+	 * @param {T} entry - 已构造完成的日志条目实例。
+	 * @returns {T} 原样返回该条目，便于调用侧继续链式使用或断言。
+	 */
+	#pushEntry(entry) {
+		this.outputEntries.push(entry)
+		if (this.outputEntries.length > this.options.maxLogEntries) this.outputEntries.shift()
+		this.options.on_log_entry?.(entry)
+		return entry
 	}
 
 	/**
@@ -191,10 +156,13 @@ export class VirtualConsole {
 	 * @param {...any} args - 要打印的内容。
 	 */
 	freshLine(id, ...args) {
-		// 在浏览器中，我们无法移动光标，所以这基本上就是一个 log
-		// 我们仍然可以模拟逻辑，以防未来浏览器支持类似功能
-		// 注意：我们不像原生版本那样清除上一行，因为做不到
-		this.log(...args)
+		// 在浏览器中无法移动光标，等同于 log
+		try {
+			this.ignoreStackFrameNum++ // freshLine 自身是额外一层，由 log wrapper 统一处理其余帧
+			this.log(...args)
+		} finally {
+			this.ignoreStackFrameNum--
+		}
 		this.#loggedFreshLineId = id
 	}
 
@@ -204,10 +172,26 @@ export class VirtualConsole {
 	 */
 	clear() {
 		this.#loggedFreshLineId = null
-		this.outputs = ''
-		this.outputsHtml = ''
+		this.outputEntries = []
 		if (this.options.realConsoleOutput)
 			this.#base_console.clear()
+	}
+
+	/**
+	 * 将写入操作作为指定级别的日志记录，但不经由 base_console 输出。
+	 * @param {string} level - 日志级别。
+	 * @param {...any} args - 要记录的内容。
+	 * @returns {void}
+	 */
+	write_as(level, ...args) {
+		if (this.options.recordOutput) try {
+			this.ignoreStackFrameNum += 3 // getStackInfo + #addEntry + write_as 自身
+			this.#addEntry(level, args)
+		} finally {
+			this.ignoreStackFrameNum -= 3
+		}
+		if (this.options.realConsoleOutput)
+			this.#base_console.log(...args)
 	}
 }
 

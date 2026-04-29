@@ -1,88 +1,73 @@
-import type { Console } from 'node:console'
-import type { Writable } from 'node:stream'
+import type {
+	BrowserLogEntryLevel,
+	BaseVirtualConsoleOptions,
+	ConsoleReflect as BaseConsoleReflect,
+	LogEntry as BaseLogEntry,
+} from './shared.d.mts'
+
+export type { BrowserLogEntryLevel, CommonLogEntryLevel, StackFrame } from './shared.d.mts'
 
 /**
- * 虚拟控制台配置选项
+ * 浏览器环境下的单条日志条目（含 stack 调用栈）
  */
-export interface VirtualConsoleOptions {
-	/** 如果为 true，则在捕获输出的同时，也调用底层控制台进行实际输出 */
-	realConsoleOutput?: boolean
-	/** 如果为 true，则捕获输出并保存在 outputs 属性中 */
-	recordOutput?: boolean
-	/** 专门处理单个 Error 对象的错误处理器 */
-	error_handler?: ((error: Error) => void) | null
-	/** 用于 realConsoleOutput 的底层控制台实例 */
-	base_console?: VirtualConsole | Console
-}
+export type LogEntry = BaseLogEntry<BrowserLogEntryLevel>
+
+/**
+ * 浏览器环境虚拟控制台配置选项
+ */
+export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<VirtualConsole, BrowserLogEntryLevel> {}
 
 /**
  * 控制台反射逻辑
  */
-export interface ConsoleReflect {
-	/** 从默认控制台获取当前控制台对象 */
-	Reflect: () => VirtualConsole
-	/** 设置当前控制台对象的函数 */
-	ReflectSet: (value: VirtualConsole) => void
-	/** 在新的异步上下文中执行函数的函数 */
-	ReflectRun: <T>(value: VirtualConsole, fn: () => T | Promise<T>) => Promise<T>
-}
+export type ConsoleReflect = BaseConsoleReflect<VirtualConsole>
 
 /**
- * 虚拟流，包装 Node.js 可写流
+ * 虚拟控制台，用于捕获输出，同时可以选择性地将输出传递给真实的控制台。
+ *
+ * > **浏览器限制：** `hookAsyncContext` 依赖全局变量栈，仅在同步或简单 await
+ * > 场景下可靠传播；detached 的 `setTimeout` 等宏任务回调不会继承上下文。
  */
-interface VirtualStream extends Writable {
-	/** 是否为 TTY */
-	readonly isTTY: boolean
-	/** 列数 */
-	readonly columns: number
-	/** 行数 */
-	readonly rows: number
-	/** 获取底层目标流 */
-	readonly targetStream: NodeJS.WritableStream
-	/** 获取颜色深度 */
-	getColorDepth(): number
-	/** 判断是否支持颜色 */
-	hasColors(): boolean
-}
-
-/**
- * 虚拟控制台，用于捕获输出，同时可以选择性地将输出传递给真实的控制台
- */
-export class VirtualConsole extends Console {
-	/** 捕获的所有输出 */
-	outputs: string
-	/** 捕获的所有输出 (HTML) */
-	outputsHtml: string
+export class VirtualConsole {
+	/** 捕获的所有输出（纯文本，由 outputEntries 聚合） */
+	readonly outputs: string
+	/** 捕获的所有输出（HTML，由 outputEntries 聚合） */
+	readonly outputsHtml: string
+	/** 结构化日志条目数组 */
+	outputEntries: LogEntry[]
 	/** 最终合并后的配置项 */
 	options: Required<Omit<VirtualConsoleOptions, 'base_console'>> & {
 		base_console?: VirtualConsole | Console
 	}
-	/** 用于 realConsoleOutput 的底层控制台实例 */
-	base_console: VirtualConsole | Console
 
 	constructor(options?: VirtualConsoleOptions)
 
 	/**
-	 * 若提供 fn，则在新的异步上下文中执行 fn，并将 fn 上下文的控制台替换为此对象。
-	 * 否则，将当前异步上下文中的控制台替换为此对象。
-	 * @param fn 在新的异步上下文中执行的函数
+	 * 若提供 fn，则在新的上下文中执行 fn，并将 fn 上下文的控制台替换为此对象。
+	 * 否则，将当前上下文中的控制台替换为此对象。
+	 * @param fn 在新的上下文中执行的函数
 	 * @returns 若提供 fn，则返回 fn 的 Promise 结果；否则返回 void
 	 */
 	hookAsyncContext<T>(fn?: () => T | Promise<T>): Promise<T> | void
 
 	/**
-	 * 在终端中打印一行，等同于 log。
-	 * @param id 用于标识可覆盖行的唯一 ID
+	 * 打印一行。
+	 * > **浏览器限制：** 无法覆盖上一行，等同于 log。
+	 * @param id 行的唯一 ID（浏览器中未使用）
 	 * @param args 要打印的内容
 	 */
 	freshLine(id: string, ...args: unknown[]): void
 
-	/** 清空捕获的输出，并选择性地清空真实控制台 */
+	/** 清空 outputEntries，并选择性地清空真实控制台 */
 	clear(): void
-}
 
-/** 全局异步存储，浏览器环境下不存在 */
-export const consoleAsyncStorage: undefined
+	/**
+	 * 将内容以指定级别写入 outputEntries，不经由 base_console 输出（除非 realConsoleOutput 为 true）。
+	 * @param level 日志级别
+	 * @param args 要记录的内容
+	 */
+	write_as(level: BrowserLogEntryLevel, ...args: unknown[]): void
+}
 
 /** 默认的虚拟控制台实例 */
 export const defaultConsole: VirtualConsole
@@ -92,9 +77,9 @@ export const globalConsoleAdditionalProperties: Record<string, unknown>
 
 /**
  * 设置全局控制台反射逻辑
- * @param Reflect 从默认控制台映射到新的控制台对象的函数
+ * @param Reflect 从默认控制台映射到当前控制台对象的函数
  * @param ReflectSet 设置当前控制台对象的函数
- * @param ReflectRun 在新的异步上下文中执行函数的函数
+ * @param ReflectRun 在新的上下文中执行函数的函数
  */
 export function setGlobalConsoleReflect(
 	Reflect: (defaultConsole: VirtualConsole) => VirtualConsole,
@@ -109,6 +94,5 @@ export function getGlobalConsoleReflect(): ConsoleReflect
 export const console: VirtualConsole
 
 declare global {
-	/** 全局控制台实例 */
 	var console: VirtualConsole
 }
