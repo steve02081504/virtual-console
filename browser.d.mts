@@ -15,7 +15,7 @@ export type LogEntry = BaseLogEntry<BrowserLogEntryLevel>
 /**
  * 浏览器环境虚拟控制台配置选项
  */
-export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<VirtualConsole, BrowserLogEntryLevel> {}
+export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<VirtualConsole, BrowserLogEntryLevel> { }
 
 /**
  * 控制台反射逻辑
@@ -28,7 +28,7 @@ export type ConsoleReflect = BaseConsoleReflect<VirtualConsole>
  * > **浏览器限制：** `hookAsyncContext` 依赖全局变量栈，仅在同步或简单 await
  * > 场景下可靠传播；detached 的 `setTimeout` 等宏任务回调不会继承上下文。
  */
-export class VirtualConsole extends Console {
+export class VirtualConsole {
 	/** 捕获的所有输出（纯文本，由 outputEntries 聚合） */
 	readonly outputs: string
 	/** 捕获的所有输出（HTML，由 outputEntries 聚合） */
@@ -75,6 +75,8 @@ export class VirtualConsole extends Console {
 	 */
 	write_as(level: BrowserLogEntryLevel, ...args: unknown[]): void
 }
+
+export interface VirtualConsole extends Console { }
 
 /** 默认的虚拟控制台实例 */
 export const defaultConsole: VirtualConsole

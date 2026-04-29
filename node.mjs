@@ -8,7 +8,7 @@ import ansiEscapes from 'ansi-escapes'
 import { FullProxy } from 'full-proxy'
 import supportsAnsi from 'supports-ansi'
 
-import { LogEntry, TraceLogEntry, formatArgs, getStackInfo } from './util.mjs'
+import { LogEntry, TraceLogEntry, getStackInfo } from './util.mjs'
 
 /**
  * 未被代理的标准输出流。
@@ -303,18 +303,14 @@ export class VirtualConsole extends Console {
 			this[method] = (...args) => {
 				const record = this.options.recordOutput
 				try {
-					// +3: getStackInfo + #addEntry + 此箭头函数自身，共 3 帧需跳过
-					this.ignoreStackFrameNum += 3
 					if (record) {
-						if (method === 'trace') this.#addTraceEntry(args)
-						else this.#addEntry(method, args)
+						this.#addEntry(method, args)
 						this.options.recordOutput = false // 避免stream写入时被重复记录
 					}
 					if (!this.options.realConsoleOutput) return originalMethod.apply(this, args)
 					this.#loggedFreshLineId = null
 					return this.#base_console[method](...args)
 				} finally {
-					this.ignoreStackFrameNum -= 3
 					if (record) this.options.recordOutput = true
 				}
 			}
@@ -322,25 +318,27 @@ export class VirtualConsole extends Console {
 	}
 
 	/**
+	 * 创建新的日志条目。
+	 * @param {string} level - 日志级别，例如 log/warn/error/stdout/stderr。
+	 * @param {any[]} args - 与 console/stream 路径一致的原始参数数组。
+	 * @param {import('./util.mjs').StackFrame[] | undefined} [stack] - 可选预采集调用栈；未传时按当前 skip 配置自动采集。
+	 * @returns {LogEntry} 新的日志条目对象。
+	 */
+	#newLogEntry(level, args, stack = getStackInfo(this.ignoreStackFrameNum + 2)) { // +2: #newLogEntry + caller 自身
+		return level === 'trace' ?
+			new TraceLogEntry(level, args, stack, this.options.supportsAnsi) :
+			new LogEntry(level, args, stack)
+	}
+
+	/**
 	 * 创建日志条目并追加到 outputEntries，自动维护上限并触发回调。
-	 * stack 缺省时使用 this.ignoreStackFrameNum 自动采集。
 	 * @param {string} level - 日志级别，例如 log/warn/error/stdout/stderr。
 	 * @param {any[]} args - 与 console/stream 路径一致的原始参数数组。
 	 * @param {import('./util.mjs').StackFrame[] | undefined} [stack] - 可选预采集调用栈；未传时按当前 skip 配置自动采集。
 	 * @returns {LogEntry} 已写入缓冲区的日志条目对象。
 	 */
-	#addEntry(level, args, stack) {
-		return this.#pushEntry(new LogEntry(level, args, stack ?? getStackInfo(this.ignoreStackFrameNum)))
-	}
-
-	/**
-	 * 创建 TraceLogEntry 并追加，用于 console.trace()。
-	 * 将宿主控制台的 supportsAnsi 传入条目，以便 toString() 按实际输出能力决定是否启用超链接序列。
-	 * @param {any[]} args - trace 的业务参数（不包含栈文本）。
-	 * @returns {TraceLogEntry} 已写入缓冲区的 trace 条目；其 toString/toHtml 会附加栈信息。
-	 */
-	#addTraceEntry(args) {
-		return this.#pushEntry(new TraceLogEntry('trace', args, getStackInfo(this.ignoreStackFrameNum), this.options.supportsAnsi))
+	#addEntry(level, args, stack = getStackInfo(this.ignoreStackFrameNum + 2)) { // +2: #addEntry + caller 自身
+		return this.#pushEntry(this.#newLogEntry(level, args, stack))
 	}
 
 	/**
@@ -450,15 +448,10 @@ export class VirtualConsole extends Console {
 	 * @returns {void}
 	 */
 	write_as(level, ...args) {
-		if (this.options.recordOutput) try {
-			this.ignoreStackFrameNum += 3 // getStackInfo + #addEntry + write_as 自身
-			if (level === 'trace') this.#addTraceEntry(args)
-			else this.#addEntry(level, args)
-		} finally {
-			this.ignoreStackFrameNum -= 3
-		}
+		const entry = this.#newLogEntry(level, args)
+		if (this.options.recordOutput) this.#pushEntry(entry)
 		if (this.options.realConsoleOutput) {
-			const content = this.outputEntries[this.outputEntries.length - 1].toString()
+			const content = entry.toString()
 			const prevRecord = this.options.recordOutput
 			this.options.recordOutput = false
 			try {

@@ -420,12 +420,14 @@ export class TraceLogEntry extends LogEntry {
 export function getStackInfo(skip_num = 0) {
 	const error = new Error()
 	if (!error.stack) return []
-	const stackLines = error.stack.split('\n').slice(1 + skip_num).filter(line => line.trim())
+	skip_num++ // skip getStackInfo itself
+	if (globalThis.chrome || !globalThis.document) skip_num++ // chrome/node/deno: skip "Error:" line
+	const stackLines = error.stack.split('\n').slice(skip_num).filter(line => line.trim())
 
 	return stackLines.map(line => {
 		const match = line.match(/at\s+(?:(?<functionName>.*)\s+)?\((?<filePath>.*?):(?<line>\d+):(?<column>\d+)\)?$/) ||
-					  line.match(/(?:(?<functionName>.*)\s+)?@(?<filePath>.*?):(?<line>\d+):(?<column>\d+)$/) ||
-					  line.match(/at\s+(?<filePath>\S+):(?<line>\d+):(?<column>\d+)$/)
+			line.match(/(?:(?<functionName>.*)\s+)?@(?<filePath>.*?):(?<line>\d+):(?<column>\d+)$/) ||
+			line.match(/at\s+(?<filePath>\S+):(?<line>\d+):(?<column>\d+)$/)
 		const result = {
 			functionName: '',
 			filePath: '',

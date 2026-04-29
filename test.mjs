@@ -505,9 +505,9 @@ async function runAllTests() {
 	await testContextIsolation()
 
 	console.log(`\n${'='.repeat(50)}`)
-	if (failed === 0) 
+	if (failed === 0)
 		console.log(`✅ 全部通过！共 ${passed} 项测试。`)
-	 else {
+	else {
 		console.error(`❌ 测试结束：${passed} 通过，${failed} 失败。`)
 		process.exit(1)
 	}
