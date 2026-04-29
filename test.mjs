@@ -1,6 +1,6 @@
 import { VirtualConsole } from '@steve02081504/virtual-console'
 
-import { getStackInfo, formatArgs } from './util.mjs'
+import { getStackInfo, formatArgs, TraceLogEntry } from './util.mjs'
 
 let passed = 0
 let failed = 0
@@ -259,6 +259,30 @@ function testFormatArgs() {
 
 	const objResult = formatArgs([{ key: 'value' }])
 	assert(typeof objResult === 'string', '对象参数返回字符串')
+
+	const circular = { name: 'self' }
+	circular.self = circular
+	const circularResult = formatArgs(['%o', circular])
+	assert(typeof circularResult === 'string', '循环对象通过 %o 格式化后返回字符串')
+	assert(circularResult.length > 0, '循环对象通过 %o 格式化后不抛错且有输出')
+
+	const err = new Error('formatArgs edge-case error')
+	const errResult = formatArgs([err])
+	assertIncludes(errResult, err.message, 'Error 参数格式化结果包含错误消息')
+	assertIncludes(errResult, 'Error: formatArgs edge-case error', 'Error 参数格式化结果包含错误类型与消息')
+	assertIncludes(errResult, 'at ', 'Error 参数格式化结果包含堆栈信息')
+
+	const traceEntry = new TraceLogEntry('trace', ['trace label'], [{
+		functionName: 'testFormatArgs',
+		filePath: 'test.mjs',
+		line: 250,
+		column: 10,
+		raw: '    at testFormatArgs (test.mjs:250:10)'
+	}], false)
+	const traceResult = formatArgs([traceEntry])
+	assertIncludes(traceResult, '"level": "trace"', 'TraceLogEntry 格式化结果包含 level 字段')
+	assertIncludes(traceResult, '"trace label"', 'TraceLogEntry 格式化结果包含 args 字段内容')
+	assertIncludes(traceResult, '"functionName": "testFormatArgs"', 'TraceLogEntry 格式化结果包含栈帧关键字段')
 }
 
 /**
