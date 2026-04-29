@@ -58,6 +58,12 @@ export class VirtualConsole extends Console {
 	}
 	/** 用于 realConsoleOutput 的底层控制台实例 */
 	base_console: VirtualConsole | Console
+	/**
+	 * 采集调用栈时额外跳过的帧数。
+	 * 在包装 console 方法时，每增加一层调用就 +1，调用完成后 -1，
+	 * 以确保 `.stack` 指向真正的调用方而非库内部。
+	 */
+	ignoreStackFrameNum: number
 
 	constructor(options?: VirtualConsoleOptions)
 

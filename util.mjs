@@ -20,7 +20,7 @@ let fileURLToPath = path => { try { return new URL(path).pathname } catch { retu
  * @returns {string} 对应的 file:// URL 字符串。
  */
 let pathToFileURL = path => {
-	if (!path || path.startsWith('file://')) return path
+	if (!path || path.includes('://')) return path
 	const normalized = path.replace(/\\/g, '/')
 	const base = normalized.startsWith('/') ? 'file://' : 'file:///'
 	return base + normalized.split('/').map(encodeURIComponent).join('/')
@@ -227,7 +227,8 @@ export function formatArgs(args) {
 				break
 			case '%o':
 			case '%O':
-				return circularToString(arg)
+				output += circularToString(arg)
+				break
 			case '%j':
 				try { output += JSON.stringify(arg, null, '\t') }
 				catch { output += safeString(arg) }

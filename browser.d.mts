@@ -28,7 +28,7 @@ export type ConsoleReflect = BaseConsoleReflect<VirtualConsole>
  * > **浏览器限制：** `hookAsyncContext` 依赖全局变量栈，仅在同步或简单 await
  * > 场景下可靠传播；detached 的 `setTimeout` 等宏任务回调不会继承上下文。
  */
-export class VirtualConsole {
+export class VirtualConsole extends Console {
 	/** 捕获的所有输出（纯文本，由 outputEntries 聚合） */
 	readonly outputs: string
 	/** 捕获的所有输出（HTML，由 outputEntries 聚合） */
@@ -39,6 +39,13 @@ export class VirtualConsole {
 	options: Required<Omit<VirtualConsoleOptions, 'base_console'>> & {
 		base_console?: VirtualConsole | Console
 	}
+
+	/**
+	 * 采集调用栈时额外跳过的帧数。
+	 * 在包装 console 方法时，每增加一层调用就 +1，调用完成后 -1，
+	 * 以确保 `.stack` 指向真正的调用方而非库内部。
+	 */
+	ignoreStackFrameNum: number
 
 	constructor(options?: VirtualConsoleOptions)
 

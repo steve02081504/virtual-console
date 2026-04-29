@@ -172,13 +172,13 @@ export class VirtualConsole {
 	 */
 	clear() {
 		this.#loggedFreshLineId = null
-		this.outputEntries = []
+		this.outputEntries.length = 0
 		if (this.options.realConsoleOutput)
 			this.#base_console.clear()
 	}
 
 	/**
-	 * 将写入操作作为指定级别的日志记录，但不经由 base_console 输出。
+	 * 将写入操作作为指定级别的日志记录，绕过调试器的捕获，但仍然计入输出。
 	 * @param {string} level - 日志级别。
 	 * @param {...any} args - 要记录的内容。
 	 * @returns {void}
@@ -186,12 +186,13 @@ export class VirtualConsole {
 	write_as(level, ...args) {
 		if (this.options.recordOutput) try {
 			this.ignoreStackFrameNum += 3 // getStackInfo + #addEntry + write_as 自身
-			this.#addEntry(level, args)
+			if (level === 'trace') this.#addTraceEntry(args)
+			else this.#addEntry(level, args)
 		} finally {
 			this.ignoreStackFrameNum -= 3
 		}
-		if (this.options.realConsoleOutput)
-			this.#base_console.log(...args)
+		if (this.options.realConsoleOutput && this.#base_console instanceof VirtualConsole)
+			this.#base_console.write_as(level, ...args)
 	}
 }
 

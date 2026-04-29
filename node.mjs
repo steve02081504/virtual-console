@@ -292,7 +292,7 @@ export class VirtualConsole extends Console {
 		this.base_console = base_console
 		for (const method of ['freshLine', 'clear', 'write_as'])
 			this[method] = this[method].bind(this)
-		for (const method of ['log', 'info', 'warn', 'debug', 'error']) {
+		for (const method of ['log', 'info', 'warn', 'debug', 'error', 'trace']) {
 			if (!this[method]) continue
 			const originalMethod = this[method]
 			/**
@@ -438,7 +438,7 @@ export class VirtualConsole extends Console {
 	 */
 	clear() {
 		this.#loggedFreshLineId = null
-		this.outputEntries = []
+		this.outputEntries.length = 0
 		if (this.options.realConsoleOutput)
 			this.#base_console.clear()
 	}
@@ -452,16 +452,17 @@ export class VirtualConsole extends Console {
 	write_as(level, ...args) {
 		if (this.options.recordOutput) try {
 			this.ignoreStackFrameNum += 3 // getStackInfo + #addEntry + write_as 自身
-			this.#addEntry(level, args)
+			if (level === 'trace') this.#addTraceEntry(args)
+			else this.#addEntry(level, args)
 		} finally {
 			this.ignoreStackFrameNum -= 3
 		}
 		if (this.options.realConsoleOutput) {
-			const content = formatArgs(args)
+			const content = this.outputEntries[this.outputEntries.length - 1].toString()
 			const prevRecord = this.options.recordOutput
 			this.options.recordOutput = false
 			try {
-				if (['warn', 'error'].includes(level)) return this._stderr.write(content)
+				if (['warn', 'error', 'trace', 'stderr'].includes(level)) return this._stderr.write(content)
 				else return this._stdout.write(content)
 			} finally {
 				this.options.recordOutput = prevRecord
