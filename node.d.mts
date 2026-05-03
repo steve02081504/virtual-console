@@ -2,117 +2,201 @@ import type { AsyncLocalStorage } from 'node:async_hooks'
 import type { Console } from 'node:console'
 import type { Writable } from 'node:stream'
 
-/**
- * 虚拟控制台配置选项
- */
-export interface VirtualConsoleOptions {
-	/** 如果为 true，则在捕获输出的同时，也调用底层控制台进行实际输出 */
-	realConsoleOutput?: boolean
-	/** 如果为 true，则捕获输出并保存在 outputs 属性中 */
-	recordOutput?: boolean
-	/** 如果为 true，则启用 ANSI 转义序列支持 */
-	supportsAnsi?: boolean
-	/** 专门处理单个 Error 对象的错误处理器 */
-	error_handler?: ((error: Error) => void) | null
-	/** 用于 realConsoleOutput 的底层控制台实例 */
-	base_console?: VirtualConsole | Console
-}
+import type {
+	NodeLogEntryLevel,
+	BaseVirtualConsoleOptions,
+	LogEntry as BaseLogEntry,
+	WriteAsLevelArg,
+} from './src/shared.d.mts'
+
+export type {
+	NodeLogEntryLevel,
+	BrowserLogEntryLevel,
+	CommonLogEntryLevel,
+	CapturedLogLevel,
+	WriteAsLevelArg,
+	StackFrame,
+	TraceLogEntry,
+	DirLogEntry,
+	StreamLogEntry,
+	ArgSnapshot,
+	LogSegment,
+	GlobalConsoleRouting,
+} from './src/shared.d.mts'
+
+/** Node.js 环境下的单条日志条目（级别包含 `stdout` / `stderr`） */
+export type LogEntry = BaseLogEntry<NodeLogEntryLevel>
 
 /**
- * 控制台反射逻辑
+ * 虚拟可写流，代理真实的 `stdout` / `stderr`。
+ * 写入操作会被捕获为 `LogEntry`（级别为 `stdout` 或 `stderr`），
+ * 同时可选地转发到原始流。TTY 属性（列宽、颜色深度等）直接透传自目标流。
  */
-export interface ConsoleReflect {
-	/** 从默认控制台获取当前控制台对象 */
-	Reflect: () => VirtualConsole
-	/** 设置当前控制台对象的函数 */
-	ReflectSet: (value: VirtualConsole) => void
-	/** 在新的异步上下文中执行函数的函数 */
-	ReflectRun: <T>(value: VirtualConsole, fn: () => T | Promise<T>) => Promise<T>
-}
-
-/**
- * 虚拟流，包装 Node.js 可写流
- */
-interface VirtualStream extends Writable {
-	/** 是否为 TTY */
+export interface VirtualStream extends Writable {
 	readonly isTTY: boolean
-	/** 列数 */
 	readonly columns: number
-	/** 行数 */
 	readonly rows: number
-	/** 获取底层目标流 */
 	readonly targetStream: NodeJS.WritableStream
-	/** 获取颜色深度 */
 	getColorDepth(): number
-	/** 判断是否支持颜色 */
 	hasColors(): boolean
 }
 
 /**
- * 虚拟控制台，用于捕获输出，同时可以选择性地将输出传递给真实的控制台
+ * Node.js 环境虚拟控制台配置选项
+ */
+export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<VirtualConsole, NodeLogEntryLevel> {
+	/**
+	 * 为 `true` 时启用 ANSI：`freshLine` 在 TTY 上可覆盖同行、`trace` 栈文本可含 OSC 8 等。
+	 * 未指定时由 `supports-ansi` 检测；若 `base_console` 为 `VirtualConsole` 则继承其 `options.supportsAnsi`。
+	 */
+	supportsAnsi?: boolean
+}
+
+/**
+ * 虚拟控制台，用于捕获 `console.*`、`process.stdout`、`process.stderr` 的输出。
+ * 基于 `AsyncLocalStorage` 实现真正的异步上下文隔离：并发任务各自拥有独立的日志缓冲区。
  */
 export class VirtualConsole extends Console {
-	/** 捕获的所有输出 */
-	outputs: string
-	/** 捕获的所有输出 (HTML) */
-	outputsHtml: string
-	/** 最终合并后的配置项 */
+	/** 所有捕获输出拼接成的纯文本字符串（条目间以换行分隔） */
+	readonly outputs: string
+	/** 所有捕获输出拼接成的 HTML 字符串（可直接渲染） */
+	readonly outputsHtml: string
+	/** 结构化日志条目数组 */
+	outputEntries: LogEntry[]
+	/** 最终合并后的配置项（日志监听请用 {@link addLogEntryListener} / {@link removeLogEntryListener}） */
 	options: Required<Omit<VirtualConsoleOptions, 'base_console'>> & {
 		base_console?: VirtualConsole | Console
 	}
-	/** 用于 realConsoleOutput 的底层控制台实例 */
+	/** `realConsoleOutput` 的透传目标控制台实例 */
 	base_console: VirtualConsole | Console
+	/**
+	 * 采集调用栈时额外跳过的帧数；初始为 `0`。
+	 * 在自定义包装函数中调用 `console.*` 时，在调用前 `+1`，`finally` 中 `-1`，
+	 * 以确保 `entry.stack` 指向真正的调用方而非包装层。
+	 */
+	stackFrameSkipCount: number
 
 	constructor(options?: VirtualConsoleOptions)
 
-	/**
-	 * 若提供 fn，则在新的异步上下文中执行 fn，并将 fn 上下文的控制台替换为此对象。
-	 * 否则，将当前异步上下文中的控制台替换为此对象。
-	 * @param fn 在新的异步上下文中执行的函数
-	 * @returns 若提供 fn，则返回 fn 的 Promise 结果；否则返回 void
-	 */
-	hookAsyncContext<T>(fn?: () => T | Promise<T>): Promise<T> | void
+	/** 注册新日志条目回调（可多路订阅） */
+	addLogEntryListener(fn: (entry: LogEntry) => void): void
+
+	/** 移除由 {@link addLogEntryListener} 注册的回调 */
+	removeLogEntryListener(fn: (entry: LogEntry) => void): void
+
+	/** 注册缓冲清空回调（在 {@link clear} 清空条目之后同步调用） */
+	addClearListener(fn: () => void): void
+
+	/** 移除由 {@link addClearListener} 注册的回调 */
+	removeClearListener(fn: () => void): void
 
 	/**
-	 * 在终端中打印一行，如果前一次调用也是具有相同 ID 的 freshLine，
-	 * 则会覆盖上一行而不是打印新行。
-	 * @param id 用于标识可覆盖行的唯一 ID
+	 * 传入函数时，在新的异步上下文中执行该函数，`console` 在函数内指向此实例，
+	 * 返回函数结果的 Promise。
+	 * @param callback 要在隔离上下文中执行的函数
+	 */
+	hookAsyncContext<T>(callback: () => T | Promise<T>): Promise<T>
+	/**
+	 * 不传参数时，通过 `AsyncLocalStorage.enterWith` 将当前异步上下文的活动控制台替换为此实例。
+	 * 无自动还原，请谨慎使用。
+	 */
+	hookAsyncContext(): void
+
+	/**
+	 * 打印一行进度信息。若前一次调用传入了相同的 `id`，则覆盖上一行而不是新增一行
+	 * （需要 ANSI 支持；在不支持 ANSI 的环境中等同于普通 `log`）。
+	 * @param id 标识可覆盖行的唯一键
 	 * @param args 要打印的内容
 	 */
 	freshLine(id: string, ...args: unknown[]): void
 
-	/** 清空捕获的输出，并选择性地清空真实控制台 */
+	/**
+	 * 清空 `outputEntries` 并重置 `freshLine` 状态。
+	 * 若 `realConsoleOutput` 为 `true`，也会调用底层控制台的 `clear()`。
+	 * 清空完成后同步调用 {@link addClearListener} 注册的回调。
+	 */
 	clear(): void
+
+	/**
+	 * 以指定级别记录日志，不经由 `console.*` 方法路由。
+	 * 适合注入自定义级别的条目或在不触发其他副作用的情况下录入数据。
+	 * 若 `realConsoleOutput` 为 `true`，warn/error/trace/stderr 类级别写入 stderr，其余写入 stdout。
+	 * @param level 日志级别（可使用任意字符串）
+	 * @param args 要记录的内容
+	 */
+	write_as(level: WriteAsLevelArg, ...args: unknown[]): void
 }
 
-/** 全局异步存储，用于管理控制台上下文 */
+/** 驱动 `hookAsyncContext` 隔离的 `AsyncLocalStorage` 实例 */
 export const consoleAsyncStorage: AsyncLocalStorage<VirtualConsole>
 
-/** 默认的虚拟控制台实例 */
+/**
+ * 始终在线的兜底控制台：不记录任何条目，直接将所有输出透传到原始全局 `console`。
+ * 是所有自定义 VirtualConsole 的最终 `base_console` 来源。
+ */
 export const defaultConsole: VirtualConsole
 
-/** 全局控制台的附加属性 */
+/**
+ * 合并到全局 `console` 代理上的附加属性对象。
+ * 对 `globalThis.console` 写入未知属性时，值会存储在这里，
+ * 以便在不同异步上下文间共享自定义扩展字段。
+ */
 export const globalConsoleAdditionalProperties: Record<string, unknown>
 
 /**
- * 设置全局控制台反射逻辑
- * @param Reflect 从默认控制台映射到新的控制台对象的函数
- * @param ReflectSet 设置当前控制台对象的函数
- * @param ReflectRun 在新的异步上下文中执行函数的函数
+ * 替换全局 `console` 代理的上下文路由逻辑。
+ * @param resolveWithFallback 给定 `defaultConsole` 作为兜底，返回当前应激活的 `VirtualConsole`
+ * @param setActive 将指定实例设为当前上下文的活动控制台
+ * @param runInContext 在以指定实例为活动控制台的新上下文中执行回调，返回其 Promise 结果
  */
-export function setGlobalConsoleReflect(
-	Reflect: (defaultConsole: VirtualConsole) => VirtualConsole,
-	ReflectSet: (value: VirtualConsole) => void,
-	ReflectRun: <T>(value: VirtualConsole, fn: () => T | Promise<T>) => Promise<T>
+export function setGlobalConsoleResolver(
+	resolveWithFallback: (defaultConsole: VirtualConsole) => VirtualConsole,
+	setActive: (value: VirtualConsole) => void,
+	runInContext: <T>(value: VirtualConsole, callback: () => T | Promise<T>) => Promise<T>
 ): void
 
-/** 获取全局控制台反射逻辑 */
-export function getGlobalConsoleReflect(): ConsoleReflect
+/** 读取当前的全局 `console` 代理路由逻辑 */
+export function getGlobalConsoleResolver(): GlobalConsoleRouting<VirtualConsole>
 
-/** 全局控制台实例（代理对象，委托给当前活动的虚拟控制台） */
+/** 全局 `console` 代理对象——所有调用委托给当前异步上下文中激活的 `VirtualConsole` */
 export const console: VirtualConsole
 
+export declare const DEFAULT_SNAPSHOT_DEPTH: number
+
+export declare function serializeArgSnapshot(
+	value: unknown,
+	seen?: WeakSet<object>,
+	depth?: number,
+	maxDepth?: number,
+	expandCtx?: unknown
+): import('./src/shared.d.mts').ArgSnapshot
+
+export declare function expandSnapshotRef(
+	ref: string,
+	maxDepth?: number
+): { ok: true; snapshot: import('./src/shared.d.mts').ArgSnapshot } | { ok: false; error: string }
+
+export declare function serializeLogEntryForWire(entry: unknown, index: number): Record<string, unknown>
+
+export declare function unregisterExpandRefsForEntry(entry: object): void
+
+export declare function getLogEntryArgs(entry: object): unknown[]
+
+export declare function stripTerminalDecorations(text: string): string
+export declare function stripOscTitleSequences(text: string): string
+export declare function terminalChunkToHtml(chunk: string): string
+export declare function streamTextToHtml(text: string): string
+export declare function coerceString(arg: unknown): string
+export declare function escapeHtml(str: string): string
+export declare function argsToSegments(
+	args: unknown[],
+	options?: { supportsAnsi?: boolean; entry?: object; snapshotDepth?: number }
+): import('./src/shared.d.mts').LogSegment[]
+export declare function streamToSegments(text: string): import('./src/shared.d.mts').LogSegment[]
+export declare function segmentsToPlainText(segments: import('./src/shared.d.mts').LogSegment[]): string
+export declare function segmentsToHtml(segments: import('./src/shared.d.mts').LogSegment[]): string
+export declare function argsToHtml(args: unknown[]): string
+
 declare global {
-	/** 全局控制台实例 */
 	var console: VirtualConsole
 }

@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/virtual-console",
-	"version": "0.1.9",
+	"version": "0.2.0",
 	"description": "A virtual console for capturing and manipulating terminal output.",
 	"main": "main.mjs",
 	"type": "module",
@@ -24,6 +24,18 @@
 		"./browser": {
 			"types": "./browser.d.mts",
 			"default": "./browser.mjs"
+		},
+		"./wire/protocol": {
+			"types": "./src/wire/protocol.d.mts",
+			"default": "./src/wire/protocol.mjs"
+		},
+		"./wire/server": {
+			"types": "./src/wire/server.d.mts",
+			"default": "./src/wire/server.mjs"
+		},
+		"./wire/client": {
+			"types": "./src/wire/client.d.mts",
+			"default": "./src/wire/client.mjs"
 		}
 	},
 	"types": "./main.d.mts",

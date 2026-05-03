@@ -1,6 +1,59 @@
 import { FullProxy } from 'full-proxy'
 
-import { argsToHtml, safeString, circularToString, escapeHtml } from './util.mjs'
+import { newLogEntry } from './src/core/entries.mjs'
+import { unregisterExpandRefsForEntry } from './src/core/snapshot.mjs'
+import { getStackInfo } from './src/core/stack.mjs'
+
+/**
+ * 重导出：日志条目工厂、`serializeLogEntryForWire` 与各特化条目类。
+ */
+export {
+	newLogEntry,
+	LogEntry,
+	StreamLogEntry,
+	DirLogEntry,
+	TraceLogEntry,
+	serializeLogEntryForWire,
+} from './src/core/entries.mjs'
+
+/**
+ * 重导出：调用栈解析与 Node 运行时内部帧修剪。
+ */
+export { getStackInfo, trimLeadingRuntimeInternalFrames } from './src/core/stack.mjs'
+
+/**
+ * 重导出：参数快照序列化、惰性展开 ref、默认深度与条目参数存取。
+ */
+export {
+	serializeArgSnapshot,
+	expandSnapshotRef,
+	DEFAULT_SNAPSHOT_DEPTH,
+	unregisterExpandRefsForEntry,
+	getLogEntryArgs,
+} from './src/core/snapshot.mjs'
+
+/**
+ * 重导出：终端 ANSI/OS C 剥离、窗口标题序列处理与 HTML 转义。
+ */
+export {
+	stripTerminalDecorations,
+	stripOscTitleSequences,
+	terminalChunkToHtml,
+	coerceString,
+	escapeHtml,
+} from './src/format/ansi.mjs'
+
+/**
+ * 重导出：printf/流文本 → `LogSegment`、片段互转与聚合 HTML。
+ */
+export {
+	argsToSegments,
+	streamToSegments,
+	segmentsToPlainText,
+	segmentsToHtml,
+	streamTextToHtml,
+	argsToHtml,
+} from './src/format/segments.mjs'
 
 /**
  * 存储原始的浏览器 console 对象。
@@ -8,123 +61,81 @@ import { argsToHtml, safeString, circularToString, escapeHtml } from './util.mjs
 const originalConsole = window.console
 
 /**
- * 格式化 console 参数为字符串。
- * @param {any[]} args - console 方法接收的参数数组。
- * @returns {string} 格式化后的单行字符串。
- */
-function formatArgs(args) {
-	if (args.length === 0) return ''
-	const format = args[0]
-	if (format?.constructor !== String)
-		return args.map(arg => {
-			if (Object(arg) instanceof String) return arg
-			if (arg instanceof Error && arg.stack) return arg.stack
-			try {
-				return JSON.stringify(arg, null, '\t')
-			}
-			catch {
-				return safeString(arg)
-			}
-		}).join(' ')
-
-	let output = ''
-	let argIndex = 1
-	let lastIndex = 0
-	const regex = /%[%Ocdfijos]/g
-	let match
-
-	while ((match = regex.exec(format)) !== null) {
-		output += format.slice(lastIndex, match.index)
-		lastIndex = regex.lastIndex
-
-		if (match[0] === '%%') {
-			output += '%'
-			continue
-		}
-
-		if (argIndex >= args.length) {
-			output += match[0]
-			continue
-		}
-
-		const arg = args[argIndex++]
-		switch (match[0]) {
-			case '%c':
-				break
-			case '%s':
-				output += safeString(arg)
-				break
-			case '%d':
-			case '%i':
-				output += String(parseInt(arg))
-				break
-			case '%f':
-				output += String(parseFloat(arg))
-				break
-			case '%o':
-			case '%O':
-				return circularToString(arg)
-			case '%j':
-				try { output += JSON.stringify(arg, null, '\t') }
-				catch { output += safeString(arg) }
-				break
-		}
-	}
-	output += format.slice(lastIndex)
-
-	while (argIndex < args.length) {
-		const arg = args[argIndex++]
-		if (output) output += ' '
-		if (arg instanceof Error && arg.stack) output += arg.stack
-		else if ((arg === null || arg instanceof Object) && !(arg instanceof Function))
-			try { output += JSON.stringify(arg, null, '\t') }
-			catch { output += safeString(arg) }
-
-		else output += safeString(arg)
-	}
-
-	return output
-}
-
-/**
  * 创建一个虚拟控制台，用于捕获输出，同时可以选择性地将输出传递给真实的控制台。
  */
 export class VirtualConsole {
-	/** @type {string} - 捕获的所有输出 */
-	outputs = ''
-	/** @type {string} - 捕获的所有输出 (HTML) */
-	outputsHtml = ''
-
-	/** @type {object} - 最终合并后的配置项 */
-	options
-
-	/** @type {Console} - 用于 realConsoleOutput 的底层控制台实例 */
-	#base_console
-
-	/** @private @type {string | null} - 用于 freshLine 功能，记录上一次 freshLine 的 ID */
-	#loggedFreshLineId = null
+	/**
+	 * 所有捕获输出拼接成的纯文本字符串（条目间以换行分隔）。
+	 * @returns {string} 聚合文本。
+	 */
+	get outputs() { return this.outputEntries.join('\n') }
+	/**
+	 * 所有捕获输出拼接成的 HTML 字符串（可直接渲染）。
+	 * @returns {string} 聚合 HTML。
+	 */
+	get outputsHtml() { return this.outputEntries.map(entry => entry.toHtml()).join('<br/>\n') }
+	/**
+	 * 结构化日志条目数组。
+	 * @type {LogEntry[]}
+	 */
+	outputEntries = []
 
 	/**
+	 * 日志条目监听器集合。
+	 * @private @type {Set<(entry: import('./src/core/entries.mjs').LogEntry) => void>}
+	 */
+	#logEntryListeners = new Set()
+	/**
+	 * 缓冲清空后触发的监听器（无参数）。
+	 * @private @type {Set<() => void>}
+	 */
+	#clearListeners = new Set()
+
+	/**
+	 * 最终合并后的配置项（日志监听请用 {@link addLogEntryListener} / {@link removeLogEntryListener}）。
+	 * @type {object}
+	 */
+	options
+
+	/**
+	 * `realConsoleOutput` 的透传目标控制台实例。
+	 * @type {Console}
+	 */
+	#base_console
+
+	/**
+	 * 采集调用栈时额外跳过的帧数；初始为 `0`。
+	 * 在自定义包装函数中调用 `console.*` 时，在调用前 `+1`，`finally` 中 `-1`，
+	 * 以确保 `entry.stack` 指向真正的调用方而非包装层。
+	 */
+	stackFrameSkipCount = 0
+
+	/**
+	 * 创建浏览器侧虚拟控制台实例。
 	 * @param {object} [options={}] - 配置选项。
 	 * @param {boolean} [options.realConsoleOutput=false] - 如果为 true，则在捕获输出的同时，也调用底层控制台进行实际输出。
 	 * @param {boolean} [options.recordOutput=true] - 如果为 true，则捕获输出并保存在 outputs 属性中。
-	 * @param {function(Error): void} [options.error_handler=null] - 一个专门处理单个 Error 对象的错误处理器。
+	 * @param {boolean} [options.supportsAnsi=!!globalThis.chrome] - 如果为 true，则启用 ANSI 转义序列支持。
 	 * @param {Console} [options.base_console=window.console] - 用于 realConsoleOutput 的底层控制台实例。
+	 * @param {number} [options.maxLogEntries=Infinity] - 最多保留的日志条目数量。
 	 */
 	constructor(options = {}) {
 		options = { ...options }
-		this.#base_console = options.base_console || consoleReflect()
+		this.#base_console = options.base_console || getActiveConsole()
 		delete options.base_console
 
 		this.options = {
 			realConsoleOutput: false,
 			recordOutput: true,
-			error_handler: null,
+			supportsAnsi: !!globalThis.chrome,
+			maxLogEntries: Infinity,
 			...options,
 		}
 
-		const methods = ['log', 'info', 'warn', 'debug', 'error', 'table', 'dir', 'assert', 'count', 'countReset', 'time', 'timeLog', 'timeEnd', 'group', 'groupCollapsed', 'groupEnd', 'trace']
-		for (const method of methods)
+		for (const method of ['freshLine', 'clear', 'write_as'])
+			this[method] = this[method].bind(this)
+
+		for (const method of ['log', 'info', 'warn', 'debug', 'error', 'trace', 'dir'])
 			if (this.#base_console[method] instanceof Function)
 				/**
 				 * 重写控制台方法
@@ -132,27 +143,108 @@ export class VirtualConsole {
 				 * @returns {void}
 				 */
 				this[method] = (...args) => {
-					if (method == 'error' && this.options.error_handler && args.length === 1 && args[0] instanceof Error) return this.options.error_handler(args[0])
-					this.#loggedFreshLineId = null // 任何常规输出都会中断 freshLine 序列
+					if (this.options.recordOutput) this.#addEntry(method, args)
 
-					if (this.options.recordOutput) {
-						this.outputs += formatArgs(args) + '\n'
-						this.outputsHtml += argsToHtml(args) + '<br/>\n'
-
-						if (method == 'trace') {
-							const stack = new Error().stack || '\nNot available'
-							this.outputs += stack.slice(stack.indexOf('\n') + 1) + '\n'
-							this.outputsHtml += escapeHtml(stack.slice(stack.indexOf('\n') + 1)) + '<br/>\n'
-						}
-					}
-
-					// 实际输出
-					if (this.options.realConsoleOutput)
+					if (this.options.realConsoleOutput) try {
+						if (this.#base_console instanceof VirtualConsole) this.#base_console.stackFrameSkipCount++
 						this.#base_console[method](...args)
+					} finally {
+						if (this.#base_console instanceof VirtualConsole) this.#base_console.stackFrameSkipCount--
+					}
 				}
 
-		this.freshLine = this.freshLine.bind(this)
-		this.clear = this.clear.bind(this)
+		for (const method of ['table', 'assert', 'count', 'countReset', 'time', 'timeLog', 'timeEnd', 'group', 'groupCollapsed', 'groupEnd'])
+			if (this.#base_console[method] instanceof Function)
+				/**
+				 * 重写控制台方法
+				 * @param {...any} args - 控制台方法的参数。
+				 * @returns {void}
+				 */
+				this[method] = (...args) => {
+					if (this.options.realConsoleOutput) try {
+						if (this.#base_console instanceof VirtualConsole) this.#base_console.stackFrameSkipCount++
+						this.#base_console[method](...args)
+					} finally {
+						if (this.#base_console instanceof VirtualConsole) this.#base_console.stackFrameSkipCount--
+					}
+				}
+	}
+
+	/**
+	 * 创建新的日志条目。
+	 * @param {string} method - 日志方法名或级别（如 log、warn、trace）。
+	 * @param {any[]} args - 与 console 方法收到的原始参数一致。
+	 * @param {import('./src/shared.d.mts').StackFrame[] | undefined} [stack] - 可选的预采集调用栈；未传时按当前 skip 配置自动采集。
+	 * @returns {import('./src/core/entries.mjs').LogEntry} 新的日志条目对象。
+	 */
+	#newLogEntry(method, args = [], stack = getStackInfo(this.stackFrameSkipCount + 2)) { // +2: #newLogEntry + caller 自身
+		return newLogEntry({ method, args, stack, supportsAnsi: this.options.supportsAnsi })
+	}
+
+	/**
+	 * 创建日志条目并追加到 outputEntries，自动维护上限并触发回调。
+	 * @param {string} level - 日志级别，例如 log/warn/error。
+	 * @param {any[]} args - 与 console 方法收到的原始参数一致。
+	 * @param {import('./src/shared.d.mts').StackFrame[] | undefined} [stack] - 可选的预采集调用栈；未传时按当前 skip 配置自动采集。
+	 * @returns {LogEntry} 已写入缓冲区的日志条目对象。
+	 */
+	#addEntry(level, args = [], stack = getStackInfo(this.stackFrameSkipCount + 2)) { // +2: #addEntry + caller 自身
+		return this.#pushEntry(this.#newLogEntry(level, args, stack))
+	}
+
+	/**
+	 * 将已构建的条目推入 outputEntries，维护上限并触发回调。
+	 * @template {LogEntry} T
+	 * @param {T} entry - 已构造完成的日志条目实例。
+	 * @returns {T} 原样返回该条目，便于调用侧继续链式使用或断言。
+	 */
+	#pushEntry(entry) {
+		this.outputEntries.push(entry)
+		if (this.outputEntries.length > this.options.maxLogEntries) {
+			const removed = this.outputEntries.shift()
+			if (removed) unregisterExpandRefsForEntry(removed)
+		}
+		for (const listener of this.#logEntryListeners) try {
+			listener(entry)
+		} catch { }
+
+		return entry
+	}
+
+	/**
+	 * 注册新日志条目回调（可多路订阅）。
+	 * @param {(entry: import('./src/core/entries.mjs').LogEntry) => void} fn - 每条结构化日志写入缓冲后同步调用；勿假设异步顺序。
+	 * @returns {void}
+	 */
+	addLogEntryListener(fn) {
+		if (fn instanceof Function) this.#logEntryListeners.add(fn)
+	}
+
+	/**
+	 * 取消先前通过 {@link addLogEntryListener} 注册的回调（引用相等时才生效）。
+	 * @param {(entry: import('./src/core/entries.mjs').LogEntry) => void} fn - 与注册时传入的函数同一引用。
+	 * @returns {void}
+	 */
+	removeLogEntryListener(fn) {
+		this.#logEntryListeners.delete(fn)
+	}
+
+	/**
+	 * 注册缓冲清空回调（`clear()` 在清空条目并可选调用底层 `clear()` 之后同步调用）。
+	 * @param {() => void} fn - 回调。
+	 * @returns {void}
+	 */
+	addClearListener(fn) {
+		if (fn instanceof Function) this.#clearListeners.add(fn)
+	}
+
+	/**
+	 * 取消先前通过 {@link addClearListener} 注册的回调。
+	 * @param {() => void} fn - 与注册时同一引用。
+	 * @returns {void}
+	 */
+	removeClearListener(fn) {
+		this.#clearListeners.delete(fn)
 	}
 
 	/**
@@ -177,42 +269,60 @@ export class VirtualConsole {
 	 * @returns {Promise<T> | void} 若提供fn，则返回 fn 函数的 Promise 结果；否则返回void。
 	 */
 	hookAsyncContext(fn) {
-		if (fn) return consoleReflectRun(this, fn)
-		else consoleReflectSet(this)
+		if (fn) return runWithActiveConsole(this, fn)
+		else setActiveConsole(this)
 	}
 
 
 	/**
-	 * 在终端中打印一行。
-	 * [浏览器限制] 由于浏览器控制台不支持 ANSI 光标移动，
-	 * 此方法无法像在 Node.js 终端中那样覆盖上一行。
-	 * 它目前等同于 console.log。
-	 * @param {string} id - 用于标识行的唯一ID (在浏览器中未使用)。
+	 * 打印一行信息。
+	 * > **浏览器限制：** 无法覆盖上一行，行为等同于普通 `log`，`id` 参数被忽略。
+	 * @param {string} id - 标识可覆盖行的唯一键（浏览器中不生效）。
 	 * @param {...any} args - 要打印的内容。
 	 */
 	freshLine(id, ...args) {
-		// 在浏览器中，我们无法移动光标，所以这基本上就是一个 log
-		// 我们仍然可以模拟逻辑，以防未来浏览器支持类似功能
-		// 注意：我们不像原生版本那样清除上一行，因为做不到
-		this.log(...args)
-		this.#loggedFreshLineId = id
+		// 在浏览器中无法移动光标，等同于 log
+		try {
+			this.stackFrameSkipCount++ // freshLine 自身是额外一层，由 log wrapper 统一处理其余帧
+			this.log(...args)
+		} finally {
+			this.stackFrameSkipCount--
+		}
 	}
 
 	/**
-	 * 清空捕获的输出，并选择性地清空真实控制台。
+	 * 清空 `outputEntries` 并重置 `freshLine` 状态。
+	 * 若 `realConsoleOutput` 为 true，也会调用底层控制台的 `clear()`。
+	 * 清空完成后会同步调用 {@link addClearListener} 注册的回调。
 	 * @returns {void}
 	 */
 	clear() {
-		this.#loggedFreshLineId = null
-		this.outputs = ''
-		this.outputsHtml = ''
+		for (const e of this.outputEntries)
+			unregisterExpandRefsForEntry(e)
+		this.outputEntries.length = 0
 		if (this.options.realConsoleOutput)
 			this.#base_console.clear()
+		for (const listener of this.#clearListeners) try {
+			listener()
+		} catch { }
+	}
+
+	/**
+	 * 以指定级别记录日志，不经由 `console.*` 方法路由。
+	 * 适合注入自定义级别的条目或在不触发其他副作用的情况下录入数据。
+	 * @param {string} method - 日志方法名。
+	 * @param {...any} args - 要记录的内容。
+	 * @returns {void}
+	 */
+	write_as(method, ...args) {
+		if (this.options.recordOutput) this.#addEntry(method, args)
+		if (this.options.realConsoleOutput && this.#base_console instanceof VirtualConsole)
+			this.#base_console.write_as(method, ...args)
 	}
 }
 
 /**
- * 默认的全局虚拟控制台实例。
+ * 始终在线的兜底控制台：不记录任何条目，直接将所有输出透传到原始 `window.console`。
  */
 export const defaultConsole = new VirtualConsole({
 	base_console: originalConsole,
@@ -221,28 +331,36 @@ export const defaultConsole = new VirtualConsole({
 })
 
 /**
- * 全局控制台的附加属性。
+ * 合并到全局 `console` 代理上的附加属性对象。
+ * 对 `globalThis.console` 写入未知属性时，值存储在这里，以便跨上下文共享自定义扩展字段。
  */
 export const globalConsoleAdditionalProperties = {}
 
 // 模拟 AsyncLocalStorage 的上下文存储
 let currentAsyncConsole = null
 
-/** @type {() => VirtualConsole} */
-let consoleReflect = () => currentAsyncConsole ?? defaultConsole
+/**
+ * 解析当前应激活的 `VirtualConsole`（默认兜底 {@link defaultConsole}）。
+ * @type {() => VirtualConsole}
+ */
+let getActiveConsole = () => currentAsyncConsole ?? defaultConsole
 
-/** @type {(value: VirtualConsole) => void} */
-let consoleReflectSet = (v) => {
-	currentAsyncConsole = v
+/**
+ * 将当前上下文的活动控制台设为指定实例。
+ * @type {(value: VirtualConsole) => void}
+ */
+let setActiveConsole = (value) => {
+	currentAsyncConsole = value
 }
 
 /**
+ * 在暂时绑定活动控制台为 `value` 的上下文中执行 `fn`。
  * @template T - fn 函数的返回类型
  * @type {(value: VirtualConsole, fn: () => T | Promise<T>) => Promise<T>}
  */
-let consoleReflectRun = async (v, fn) => {
+let runWithActiveConsole = async (value, fn) => {
 	const previousConsole = currentAsyncConsole
-	currentAsyncConsole = v
+	currentAsyncConsole = value
 	try {
 		const result = fn()
 		return await Promise.resolve(result)
@@ -254,31 +372,31 @@ let consoleReflectRun = async (v, fn) => {
 
 // 暴露设置和获取反射逻辑的函数，以完全匹配原始API
 /**
- * 设置全局控制台反射逻辑
- * @template T - fn 函数的返回类型
- * @param {(console: Console) => Console} Reflect 将 console 参数映射到新的 console 对象的函数。
- * @param {(console: Console) => void} ReflectSet 设置当前 console 对象的函数。
- * @param {(console: Console, fn: () => T) => Promise<T>} ReflectRun  在新的异步上下文中执行函数的函数。
+ * 替换全局 `console` 代理的上下文路由逻辑。
+ * @template T
+ * @param {(defaultConsole: VirtualConsole) => VirtualConsole} resolveWithFallback 给定兜底值，返回当前应激活的控制台。
+ * @param {(value: VirtualConsole) => void} setActive 将指定实例设为当前上下文的活动控制台。
+ * @param {(value: VirtualConsole, callback: () => T | Promise<T>) => Promise<T>} runInContext 在以指定实例为活动控制台的新上下文中执行回调。
  * @returns {void}
  */
-export function setGlobalConsoleReflect(Reflect, ReflectSet, ReflectRun) {
+export function setGlobalConsoleResolver(resolveWithFallback, setActive, runInContext) {
 	/**
-	 * 从默认控制台获取当前控制台对象。
-	 * @returns {Console} 当前控制台对象。
+	 * 当前异步/全局上下文中应接收 `console` 调用的实例
+	 * @returns {VirtualConsole} 当前异步/全局上下文中应接收 `console` 调用的实例
 	 */
-	consoleReflect = () => Reflect(defaultConsole)
-	consoleReflectSet = ReflectSet
-	consoleReflectRun = ReflectRun
+	getActiveConsole = () => resolveWithFallback(defaultConsole)
+	setActiveConsole = setActive
+	runWithActiveConsole = runInContext
 }
 /**
- * 获取全局控制台反射逻辑。
- * @returns {object} 包含 Reflect、ReflectSet 和 ReflectRun 函数的对象。
+ * 读取当前的全局 `console` 代理路由逻辑。
+ * @returns {{ getActiveConsole: () => VirtualConsole, setActiveConsole: (value: VirtualConsole) => void, runWithActiveConsole: <T>(value: VirtualConsole, fn: () => T | Promise<T>) => Promise<T> }} 当前生效的三段回调，可与 {@link setGlobalConsoleResolver} 配合替换或观测。
  */
-export function getGlobalConsoleReflect() {
+export function getGlobalConsoleResolver() {
 	return {
-		Reflect: consoleReflect,
-		ReflectSet: consoleReflectSet,
-		ReflectRun: consoleReflectRun
+		getActiveConsole,
+		setActiveConsole,
+		runWithActiveConsole,
 	}
 }
 
@@ -290,10 +408,9 @@ const proxyBase = {
 	...originalConsole,
 }
 /**
- * 导出一个代理对象作为全局 console，它将所有操作委托给当前的活动控制台。
- * 这与原始 Node.js 版本的实现完全相同。
+ * 全局 `console` 代理对象——所有调用委托给当前上下文中激活的 `VirtualConsole`。
  */
-export const console = globalThis.console = new FullProxy(() => Object.assign(proxyBase, globalConsoleAdditionalProperties, consoleReflect()), {
+export const console = globalThis.console = new FullProxy(() => Object.assign(proxyBase, globalConsoleAdditionalProperties, getActiveConsole()), {
 	/**
 	 * 设置属性时的处理逻辑。
 	 * @param {object} target - 目标对象。
@@ -302,7 +419,7 @@ export const console = globalThis.console = new FullProxy(() => Object.assign(pr
 	 * @returns {boolean} 指示属性是否成功设置的布尔值。
 	 */
 	set: (target, property, value) => {
-		target = consoleReflect()
+		target = getActiveConsole()
 		if (property in target) return Reflect.set(target, property, value)
 		globalConsoleAdditionalProperties[property] = value
 		return true
