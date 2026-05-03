@@ -132,7 +132,11 @@ export class VirtualConsole {
 			...options,
 		}
 
-		for (const method of ['freshLine', 'clear', 'write_as'])
+		for (const method of [
+			'freshLine', 'clear', 'write_as',
+			'addLogEntryListener', 'removeLogEntryListener',
+			'addClearListener', 'removeClearListener'
+		])
 			this[method] = this[method].bind(this)
 
 		for (const method of ['log', 'info', 'warn', 'debug', 'error', 'trace', 'dir'])
@@ -413,9 +417,9 @@ export const console = globalThis.console = new FullProxy(() => Object.assign({}
 	 * @returns {unknown}
 	 */
 	get: (target, property, receiver) => {
-		const vc = getActiveConsole()
-		if (Reflect.has(vc, property))
-			return Reflect.get(vc, property, receiver)
+		target = getActiveConsole()
+		if (Reflect.has(target, property))
+			return Reflect.get(target, property, target)
 		if (property in globalConsoleAdditionalProperties)
 			return globalConsoleAdditionalProperties[property]
 		return Reflect.get(originalConsole, property, receiver)

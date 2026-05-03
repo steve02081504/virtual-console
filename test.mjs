@@ -1,6 +1,8 @@
 import { VirtualConsole } from '@steve02081504/virtual-console'
 
 import { TraceLogEntry } from './src/core/entries.mjs'
+import { logWirePayloadTypes } from './src/wire/protocol.mjs'
+import { createLogWireWebSocketHandler } from './src/wire/server.mjs'
 import {
 	DEFAULT_SNAPSHOT_DEPTH,
 	expandSnapshotRef,
@@ -211,17 +213,103 @@ async function testClear() {
 }
 
 /**
- * 全局 `console` 为 FullProxy 时，须能从 {@link getActiveConsole} 解析原型上的监听 API
- *（供 `createLogWireWebSocketHandler(console, …)` 等传入代理的用例）。
+ * 全局 `console` 为 Proxy 时：须暴露监听/清空 API，且 add/remove 与 clear 可正确绑定 VirtualConsole。
  */
-function testGlobalConsoleProxyExposesListenerAPI() {
-	console.log('\n=== [全局 console 代理：监听/清空 API] ===')
+async function testGlobalConsoleProxy() {
+	console.log('\n=== [全局 console 代理：API 与可调用性] ===')
 
 	assert(typeof console.addLogEntryListener === 'function', 'console.addLogEntryListener 为函数')
 	assert(typeof console.removeLogEntryListener === 'function', 'console.removeLogEntryListener 为函数')
 	assert(typeof console.addClearListener === 'function', 'console.addClearListener 为函数')
 	assert(typeof console.removeClearListener === 'function', 'console.removeClearListener 为函数')
 	assert(typeof console.clear === 'function', 'console.clear 为函数')
+
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+
+	let logCalls = 0
+	/** @type {import('./src/core/entries.mjs').LogEntry[]} */
+	const seenEntries = []
+	/**
+	 * @param {import('./src/core/entries.mjs').LogEntry} entry - 日志条目。
+	 * @returns {void}
+	 */
+	const onLog = (entry) => {
+		logCalls++
+		seenEntries.push(entry)
+	}
+
+	await vc.hookAsyncContext(async () => {
+		console.addLogEntryListener(onLog)
+		console.log('proxy-listener-msg')
+		console.removeLogEntryListener(onLog)
+		console.log('after-remove')
+	})
+
+	assertEqual(logCalls, 1, '通过 Proxy 注册的 addLogEntryListener 只在前一条日志时触发')
+	assert(
+		seenEntries.length === 1 && getLogEntryArgs(seenEntries[0])[0] === 'proxy-listener-msg',
+		'回调收到正确条目')
+
+	let clearCount = 0
+	/**
+	 * @returns {void}
+	 */
+	const onClear = () => {
+		clearCount++
+	}
+
+	await vc.hookAsyncContext(async () => {
+		console.addClearListener(onClear)
+		console.clear()
+		console.removeClearListener(onClear)
+		console.clear()
+	})
+
+	assertEqual(clearCount, 1, '通过 Proxy 注册的 addClearListener 只在首次 clear 时触发')
+}
+
+/**
+ * 将全局 `console` Proxy 传入 createLogWireWebSocketHandler 时不应抛错，且能广播 append。
+ */
+async function testCreateLogWireWebSocketHandlerWithProxy() {
+	console.log('\n=== [wire：全局 console Proxy + WebSocket handler] ===')
+
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+
+	/** @type {{ messages: string[] }} */
+	const wire = { messages: [] }
+
+	await vc.hookAsyncContext(async () => {
+		const sent = wire.messages
+		const mockWs = {
+			readyState: 1,
+			/**
+			 * @param {string} data - JSON 文本。
+			 * @returns {void}
+			 */
+			send: (data) => {
+				sent.push(data)
+			},
+			/**
+			 * @param {string} _ev - 事件名。
+			 * @param {(...args: unknown[]) => void} _fn - 回调。
+			 * @returns {void}
+			 */
+			on: (_ev, _fn) => { },
+		}
+
+		const handler = createLogWireWebSocketHandler(console, {})
+		handler(mockWs)
+
+		console.log('wire-append-marker')
+	})
+
+	assert(wire.messages.length >= 1, '连接后至少下发 snapshot')
+	const snap = JSON.parse(wire.messages[0])
+	assert(snap.type === logWirePayloadTypes.SNAPSHOT, '首包为 vc_log_snapshot')
+	assert(wire.messages.length >= 2, '新日志后下发追加消息')
+	const append = JSON.parse(wire.messages[wire.messages.length - 1])
+	assert(append.type === logWirePayloadTypes.APPEND, '追加包为 vc_log_append')
 }
 
 /**
@@ -244,21 +332,28 @@ async function testWriteAs() {
 }
 
 /**
- * 测试 process.stdout 重定向
+ * 测试 process.stdout / stderr 重定向
  */
-async function testStdoutRedirection() {
-	console.log('\n=== [process.stdout 重定向测试] ===')
+async function testProcessStreamRedirection() {
+	console.log('\n=== [process.stdout / stderr 重定向测试] ===')
 
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
 	await vc.hookAsyncContext(async () => {
 		process.stdout.write('written to process.stdout\n')
+		process.stderr.write('written to process.stderr\n')
 	})
 
 	assertIncludes(vc.outputs, 'written to process.stdout', 'process.stdout.write 被虚拟控制台捕获')
-	assert(vc.outputEntries.length > 0, 'process.stdout 写入被记录为 outputEntry')
-	assertEqual(vc.outputEntries[0].method, 'stdout', 'process.stdout 写入的 method 为 stdout')
-	assertEqual(vc.outputEntries[0].level, 'log', 'process.stdout 语义级别为 log')
+	assertIncludes(vc.outputs, 'written to process.stderr', 'process.stderr.write 被虚拟控制台捕获')
+	assert(vc.outputEntries.length >= 2, 'stdout/stderr 各产生 outputEntry')
+
+	const out = vc.outputEntries.find(e => e.method === 'stdout')
+	const err = vc.outputEntries.find(e => e.method === 'stderr')
+	assert(out, '存在 stdout 条目')
+	assert(err, '存在 stderr 条目')
+	assertEqual(out.level, 'log', 'process.stdout 语义级别为 log')
+	assertEqual(err.level, 'error', 'process.stderr 语义级别为 error')
 }
 
 /**
@@ -315,7 +410,6 @@ function testFormatArgs() {
 
 	const err = new Error('formatArgs edge-case error')
 	const errResult = formatArgs([err])
-	assertIncludes(errResult, err.message, 'Error 参数格式化结果包含错误消息')
 	assertIncludes(errResult, 'Error: formatArgs edge-case error', 'Error 参数格式化结果包含错误类型与消息')
 	assertIncludes(errResult, 'at ', 'Error 参数格式化结果包含堆栈信息')
 
@@ -363,28 +457,10 @@ async function testContextIsolation() {
 }
 
 /**
- * 测试 process.stderr 重定向
+ * 测试 addLogEntryListener：console 与 stdout/stderr 均触发，且回调 entry 与 outputEntries 一致
  */
-async function testStderrRedirection() {
-	console.log('\n=== [process.stderr 重定向测试] ===')
-
-	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
-
-	await vc.hookAsyncContext(async () => {
-		process.stderr.write('written to process.stderr\n')
-	})
-
-	assertIncludes(vc.outputs, 'written to process.stderr', 'process.stderr.write 被虚拟控制台捕获')
-	assert(vc.outputEntries.length > 0, 'process.stderr 写入被记录为 outputEntry')
-	assertEqual(vc.outputEntries[0].method, 'stderr', 'process.stderr 写入的 method 为 stderr')
-	assertEqual(vc.outputEntries[0].level, 'error', 'process.stderr 语义级别为 error')
-}
-
-/**
- * 测试 addLogEntryListener 回调
- */
-async function testOnLogEntryCallback() {
-	console.log('\n=== [addLogEntryListener 回调测试] ===')
+async function testAddLogEntryListenerCallbacks() {
+	console.log('\n=== [addLogEntryListener：console 与流] ===')
 
 	const callbackEntries = []
 	const vc = new VirtualConsole({
@@ -392,53 +468,26 @@ async function testOnLogEntryCallback() {
 		realConsoleOutput: false,
 	})
 	/**
-	 * 记录每条新增日志，供断言回调触发次数与内容。
 	 * @param {import('./src/core/entries.mjs').LogEntry} entry - 新增日志条目对象。
-	 * @returns {void} 无返回值。
+	 * @returns {void}
 	 */
 	vc.addLogEntryListener((entry) => callbackEntries.push(entry))
 
-	await vc.hookAsyncContext(() => {
+	await vc.hookAsyncContext(async () => {
 		console.log('msg1')
 		console.warn('msg2')
 		console.error('msg3')
-	})
-
-	assertEqual(callbackEntries.length, 3, 'addLogEntryListener 被调用了 3 次')
-	if (callbackEntries.length >= 3) {
-		assertEqual(callbackEntries[0].level, 'log', 'addLogEntryListener 第1次回调 level 为 log')
-		assertEqual(callbackEntries[1].level, 'warn', 'addLogEntryListener 第2次回调 level 为 warn')
-		assertEqual(callbackEntries[2].level, 'error', 'addLogEntryListener 第3次回调 level 为 error')
-		assert(callbackEntries[0] === vc.outputEntries[0], 'addLogEntryListener 回调传入的是同一个 entry 对象')
-	}
-}
-
-/**
- * 测试 addLogEntryListener 在 process.stdout/stderr 写入时也触发
- */
-async function testOnLogEntryCallbackForStreams() {
-	console.log('\n=== [addLogEntryListener 流回调测试] ===')
-
-	const callbackEntries = []
-	const vc = new VirtualConsole({
-		recordOutput: true,
-		realConsoleOutput: false,
-	})
-	/**
-	 * 收集由 stdout/stderr 触发的回调条目。
-	 * @param {import('./src/core/entries.mjs').LogEntry} entry - 新增日志条目对象。
-	 * @returns {void} 无返回值。
-	 */
-	vc.addLogEntryListener((entry) => callbackEntries.push(entry))
-
-	await vc.hookAsyncContext(async () => {
 		process.stdout.write('stdout msg\n')
 		process.stderr.write('stderr msg\n')
 	})
 
-	assert(callbackEntries.length >= 2, 'process.stdout/stderr 写入也触发 addLogEntryListener 回调')
+	assertEqual(callbackEntries.length, 5, 'addLogEntryListener 共 5 次（log/warn/error + stdout + stderr）')
+	assertEqual(callbackEntries[0].level, 'log', '第1条回调 level 为 log')
+	assertEqual(callbackEntries[1].level, 'warn', '第2条回调 level 为 warn')
+	assertEqual(callbackEntries[2].level, 'error', '第3条回调 level 为 error')
 	assert(callbackEntries.some(e => e.method === 'stdout'), '包含 stdout 流的回调')
 	assert(callbackEntries.some(e => e.method === 'stderr'), '包含 stderr 流的回调')
+	assert(callbackEntries[0] === vc.outputEntries[0], '首条回调与 outputEntries[0] 为同一对象')
 }
 
 /**
@@ -459,50 +508,10 @@ async function testRecordOutputFalse() {
 }
 
 /**
- * 测试 process.stdout 捕获条目的 stack 首帧为用户调用处，而非 Node/Deno 流内部栈。
+ * logEntry.stack：console.log 与 stdout 捕获的首帧均指向本测试用户代码（非运行时内部栈）。
  */
-async function testStdoutCaptureStackTopIsUserCode() {
-	console.log('\n=== [stdout 捕获栈首帧为用户代码] ===')
-
-	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
-
-	/**
-	 * 与栈断言对应的调用点：stdout 写入必须发自具名函数便于辨认。
-	 * @returns {void}
-	 */
-	function callerOfStdoutWrite() {
-		process.stdout.write('stdout-stack-top-marker\n')
-	}
-
-	await vc.hookAsyncContext(() => callerOfStdoutWrite())
-
-	const entry = vc.outputEntries.find(e =>
-		e.method === 'stdout' && typeof e.streamText === 'string' && e.streamText.includes('stdout-stack-top-marker'))
-
-	assert(entry, '找到带标记的 stdout 条目')
-	assert(Array.isArray(entry.stack) && entry.stack.length > 0, 'stdout 条目含非空 stack')
-
-	const top = entry.stack[0]
-	const fp = top.filePath
-
-	assert(
-		!fp.startsWith('node:') && !fp.startsWith('deno:') && !fp.startsWith('ext:'),
-		`首帧不应为运行时内部路径，实际 filePath=${fp}`)
-
-	assert(
-		fp.includes('test.mjs'),
-		`首帧应落在本测试文件（test.mjs），实际 filePath=${fp}`)
-
-	assert(
-		top.functionName.includes('callerOfStdoutWrite'),
-		`首帧函数名应对应为写入调用者，实际 functionName=${top.functionName}`)
-}
-
-/**
- * 测试 logEntry 的 stack 字段（Node.js 专属）
- */
-async function testLogEntryStackField() {
-	console.log('\n=== [logEntry.stack 字段测试] ===')
+async function testLogEntryStack() {
+	console.log('\n=== [logEntry.stack：console 与 stdout 首帧] ===')
 
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
@@ -510,14 +519,42 @@ async function testLogEntryStackField() {
 		console.log('test stack')
 	})
 
-	const entry = vc.outputEntries[0]
-	assert('stack' in entry, 'logEntry 包含 stack 字段')
-	assert(Array.isArray(entry.stack), 'logEntry.stack 是数组')
-	assert(entry.stack.length > 0, 'logEntry.stack 不为空')
-	assert(typeof entry.stack[0].filePath === 'string', 'stack 帧包含 filePath')
-	assert(typeof entry.stack[0].line === 'number', 'stack 帧包含 line 号')
-	// 第一帧应该是用户代码（test.mjs），而非库内部帧（node.mjs / browser.mjs / entries.mjs 等）
-	assert(entry.stack[0].filePath.includes('test.mjs'), `第一个栈帧应指向用户代码（test.mjs），实际为：${entry.stack[0].filePath}`)
+	const logEntry = vc.outputEntries[0]
+	assert('stack' in logEntry, 'logEntry 包含 stack 字段')
+	assert(Array.isArray(logEntry.stack), 'logEntry.stack 是数组')
+	assert(logEntry.stack.length > 0, 'logEntry.stack 不为空')
+	assert(typeof logEntry.stack[0].filePath === 'string', 'stack 帧包含 filePath')
+	assert(typeof logEntry.stack[0].line === 'number', 'stack 帧包含 line 号')
+	assert(logEntry.stack[0].filePath.includes('test.mjs'), `console.log 首帧应为用户代码（test.mjs），实际：${logEntry.stack[0].filePath}`)
+
+	const vc2 = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+
+	/**
+	 * @returns {void}
+	 */
+	function callerOfStdoutWrite() {
+		process.stdout.write('stdout-stack-top-marker\n')
+	}
+
+	await vc2.hookAsyncContext(() => callerOfStdoutWrite())
+
+	const stdoutEntry = vc2.outputEntries.find(e =>
+		e.method === 'stdout' && typeof e.streamText === 'string' && e.streamText.includes('stdout-stack-top-marker'))
+
+	assert(stdoutEntry, '找到带标记的 stdout 条目')
+	assert(Array.isArray(stdoutEntry.stack) && stdoutEntry.stack.length > 0, 'stdout 条目含非空 stack')
+
+	const top = stdoutEntry.stack[0]
+	const fp = top.filePath
+
+	assert(
+		!fp.startsWith('node:') && !fp.startsWith('deno:') && !fp.startsWith('ext:'),
+		`stdout 首帧不应为运行时内部路径，实际 filePath=${fp}`)
+
+	assert(fp.includes('test.mjs'), `stdout 首帧应落在 test.mjs，实际 filePath=${fp}`)
+	assert(
+		top.functionName.includes('callerOfStdoutWrite'),
+		`stdout 首帧函数名应为写入调用者，实际 functionName=${top.functionName}`)
 }
 
 /**
@@ -677,15 +714,13 @@ async function runAllTests() {
 	await testConsoleDir()
 	await testMaxLogEntries()
 	await testClear()
-	testGlobalConsoleProxyExposesListenerAPI()
+	await testGlobalConsoleProxy()
+	await testCreateLogWireWebSocketHandlerWithProxy()
 	await testWriteAs()
-	await testStdoutRedirection()
-	await testStderrRedirection()
-	await testOnLogEntryCallback()
-	await testOnLogEntryCallbackForStreams()
+	await testProcessStreamRedirection()
+	await testAddLogEntryListenerCallbacks()
 	await testRecordOutputFalse()
-	await testStdoutCaptureStackTopIsUserCode()
-	await testLogEntryStackField()
+	await testLogEntryStack()
 	await testWriteAsNoDoubleRecord()
 	await testConsecutiveStdoutMerge()
 	await testConcurrentAsyncIsolation()
