@@ -211,6 +211,20 @@ async function testClear() {
 }
 
 /**
+ * 全局 `console` 为 FullProxy 时，须能从 {@link getActiveConsole} 解析原型上的监听 API
+ *（供 `createLogWireWebSocketHandler(console, …)` 等传入代理的用例）。
+ */
+function testGlobalConsoleProxyExposesListenerAPI() {
+	console.log('\n=== [全局 console 代理：监听/清空 API] ===')
+
+	assert(typeof console.addLogEntryListener === 'function', 'console.addLogEntryListener 为函数')
+	assert(typeof console.removeLogEntryListener === 'function', 'console.removeLogEntryListener 为函数')
+	assert(typeof console.addClearListener === 'function', 'console.addClearListener 为函数')
+	assert(typeof console.removeClearListener === 'function', 'console.removeClearListener 为函数')
+	assert(typeof console.clear === 'function', 'console.clear 为函数')
+}
+
+/**
  * 测试 write_as 方法
  */
 async function testWriteAs() {
@@ -663,6 +677,7 @@ async function runAllTests() {
 	await testConsoleDir()
 	await testMaxLogEntries()
 	await testClear()
+	testGlobalConsoleProxyExposesListenerAPI()
 	await testWriteAs()
 	await testStdoutRedirection()
 	await testStderrRedirection()

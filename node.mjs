@@ -671,22 +671,31 @@ export function getGlobalConsoleResolver() {
 }
 
 /**
- * 代理对象的基础对象，避免重复的内存分配。
- * @type {object}
- */
-const proxyBase = {
-	...originalConsole,
-}
-/**
  * 全局控制台实例。
  */
-export const console = globalThis.console = new FullProxy(() => Object.assign(proxyBase, globalConsoleAdditionalProperties, getActiveConsole()), {
+export const console = globalThis.console = new FullProxy(() => Object.assign({}, originalConsole, globalConsoleAdditionalProperties, getActiveConsole()), {
+	/**
+	 * 先从当前 {@link getActiveConsole} 解析（含原型上的 `addLogEntryListener` 等），
+	 * 再回落到扩展字段与 `originalConsole`：仅用 `Object.assign` 合并不继承类原型方法。
+	 * @param {object} target - 占位目标。
+	 * @param {string | symbol} property - 属性名。
+	 * @param {object} receiver - receiver。
+	 * @returns {unknown}
+	 */
+	get: (target, property, receiver) => {
+		const vc = getActiveConsole()
+		if (Reflect.has(vc, property))
+			return Reflect.get(vc, property, receiver)
+		if (property in globalConsoleAdditionalProperties)
+			return globalConsoleAdditionalProperties[property]
+		return Reflect.get(originalConsole, property, receiver)
+	},
 	/**
 	 * 设置属性时的处理逻辑。
 	 * @param {object} target - 目标对象。
 	 * @param {string | symbol} property - 要设置的属性名。
 	 * @param {any} value - 要设置的属性值。
-	 * @returns {any} 属性值。
+	 * @returns {boolean} 指示属性是否成功设置的布尔值。
 	 */
 	set: (target, property, value) => {
 		target = getActiveConsole()

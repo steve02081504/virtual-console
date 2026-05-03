@@ -401,16 +401,25 @@ export function getGlobalConsoleResolver() {
 }
 
 /**
- * 代理对象的基础对象，避免重复的内存分配。
- * @type {object}
+ * 全局控制台实例。
  */
-const proxyBase = {
-	...originalConsole,
-}
-/**
- * 全局 `console` 代理对象——所有调用委托给当前上下文中激活的 `VirtualConsole`。
- */
-export const console = globalThis.console = new FullProxy(() => Object.assign(proxyBase, globalConsoleAdditionalProperties, getActiveConsole()), {
+export const console = globalThis.console = new FullProxy(() => Object.assign({}, originalConsole, globalConsoleAdditionalProperties, getActiveConsole()), {
+	/**
+	 * 先从当前 {@link getActiveConsole} 解析（含原型上的 `addLogEntryListener` 等），
+	 * 再回落到扩展字段与 `originalConsole`：仅用 `Object.assign` 合并不继承类原型方法。
+	 * @param {object} target - 占位目标。
+	 * @param {string | symbol} property - 属性名。
+	 * @param {object} receiver - receiver。
+	 * @returns {unknown}
+	 */
+	get: (target, property, receiver) => {
+		const vc = getActiveConsole()
+		if (Reflect.has(vc, property))
+			return Reflect.get(vc, property, receiver)
+		if (property in globalConsoleAdditionalProperties)
+			return globalConsoleAdditionalProperties[property]
+		return Reflect.get(originalConsole, property, receiver)
+	},
 	/**
 	 * 设置属性时的处理逻辑。
 	 * @param {object} target - 目标对象。
