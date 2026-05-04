@@ -1,10 +1,10 @@
 /**
  * 与任意 WebSocket 复用的日志线路消息（纯函数，不创建连接）。
  */
-import { serializeLogEntryForWire } from '../core/entries.mjs'
 import { expandSnapshotRef } from '../core/snapshot.mjs'
 
 import { logWirePayloadTypes, makeClearedPayload } from './protocol.mjs'
+import { serializeLogEntryForWire } from './serialize-log-entry.mjs'
 
 /** WebSocket.OPEN（浏览器与 `ws` 包一致） */
 const WS_OPEN = 1
@@ -59,12 +59,9 @@ export function makeExpandErrorResponse(ref, error) {
  * @returns {{ ref: string } | null} 合法请求返回 ref；否则 `null`。
  */
 export function parseClientExpandMessage(parsed) {
-	if (!parsed || typeof parsed !== 'object') return null
 	const message = /** @type {Record<string, unknown>} */ parsed
 	if (message.type !== logWirePayloadTypes.EXPAND_REQUEST) return null
-	const { ref } = message
-	if (typeof ref !== 'string' || !ref) return null
-	return { ref }
+	return { ref: message.ref }
 }
 
 /**
@@ -73,7 +70,6 @@ export function parseClientExpandMessage(parsed) {
  * @returns {{}|null} 合法请求返回空对象；否则 `null`。
  */
 export function parseClientClearMessage(parsed) {
-	if (!parsed || typeof parsed !== 'object') return null
 	const message = /** @type {Record<string, unknown>} */ parsed
 	if (message.type !== logWirePayloadTypes.CLEAR_REQUEST) return null
 	return {}
@@ -104,8 +100,12 @@ export function handleClientWireMessage(parsed, handlers = {}) {
  *   addClearListener: (fn: () => void) => void
  *   clear: () => void
  * }} virtualConsole - 带缓冲与监听器的宿主控制台（通常为 `VirtualConsole`）。
- * @param {{ getMetadata?: (req: unknown) => Record<string, unknown> }} [opts] - 可选：随快照下发的业务元数据（如权限开关）。
- * @returns {(ws: { readyState: number, send: (data: string) => void, on: (ev: string, fn: (...args: unknown[]) => void) => void }, req?: unknown) => void} 供 `express-ws` 等直接挂载的 `(ws, req) => void`。
+ * @param {{ getMetadata?: (req: unknown) => Record<string, unknown> }} [options] - 可选：随快照下发的业务元数据（如权限开关）。
+ * @returns {(ws: { readyState: number, send: (data: string) => void, on: (ev: string, fn: (...args: unknown[]) => void) => void, close?: (code?: number, reason?: string) => void }, req?: unknown) => void) & {
+ *   broadcastJson: (payload: object) => void,
+ *   forEachClient: (fn: (ws: unknown) => void) => void,
+ *   closeAllWithFinalJson: (payload: object) => Promise<void>,
+ * }} 供挂载的 `(ws, req) => void`，并附带 `broadcastJson` / `forEachClient` / `closeAllWithFinalJson` 控制面。
  */
 export function createLogWireWebSocketHandler(virtualConsole, {
 	getMetadata = () => ({}),
@@ -123,7 +123,7 @@ export function createLogWireWebSocketHandler(virtualConsole, {
 			if (ws.readyState === WS_OPEN)
 				ws.send(payload)
 	})
-	return (ws, req) => {
+	const handler = (ws, req) => {
 		clients.add(ws)
 		ws.send(JSON.stringify(makeSnapshotPayload(virtualConsole.outputEntries, getMetadata(req))))
 		ws.on('message', (raw) => {
@@ -144,4 +144,64 @@ export function createLogWireWebSocketHandler(virtualConsole, {
 			clients.delete(ws)
 		})
 	}
+
+	/**
+	 * 向所有当前连接且处于 OPEN 的客户端发送同一 JSON 正文（不经缓冲区），用于宿主自定义扩展帧。
+	 * @param {object} payload - 可 `JSON.stringify` 的对象。
+	 * @returns {void}
+	 */
+	handler.broadcastJson = (payload) => {
+		const text = JSON.stringify(payload)
+		for (const ws of clients) {
+			if (ws.readyState !== WS_OPEN)
+				continue
+			try {
+				ws.send(text)
+			}
+			catch {
+				/* ignore send failure */
+			}
+		}
+	}
+
+	/**
+	 * 遍历当前仍登记的客户端套接字（可能非 OPEN）；用于宿主自定义广播或计量。
+	 * @param {(ws: { readyState: number, send: (data: string) => void, on: (ev: string, fn: (...args: unknown[]) => void) => void, close: (code?: number, reason?: string) => void }) => void} fn - 同步回调。
+	 * @returns {void}
+	 */
+	handler.forEachClient = (fn) => {
+		for (const ws of clients)
+			fn(ws)
+	}
+
+	/**
+	 * 向每个仍处于 OPEN 的连接发送最终 JSON，随后 `close()`，并等待全部触发 `close`（已关闭的套接字会立刻计入完成）。
+	 * @param {object} payload - 可 `JSON.stringify` 的对象。
+	 * @returns {Promise<void>} 全部 `close` 回调结算后兑现。
+	 */
+	handler.closeAllWithFinalJson = async (payload) => {
+		const text = JSON.stringify(payload)
+		/** @type {Promise<void>[]} */
+		const closeWaits = []
+		for (const ws of [...clients]) {
+			try {
+				if (ws.readyState === WS_OPEN)
+					ws.send(text)
+				closeWaits.push(new Promise((resolve) => {
+					if (ws.readyState !== WS_OPEN)
+						resolve()
+					else
+						ws.once('close', resolve)
+				}))
+				if (ws.readyState === WS_OPEN)
+					ws.close()
+			}
+			catch {
+				/* ignore */
+			}
+		}
+		await Promise.allSettled(closeWaits)
+	}
+
+	return handler
 }

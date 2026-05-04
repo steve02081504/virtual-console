@@ -37,16 +37,16 @@ if (!globalThis.document) await Promise.all([
 ]).catch(() => { })
 
 /**
- * 获取当前执行点的调用栈信息，并按 skip_num 跳过前若干内部帧。
- * @param {number} [skip_num=0] - 额外跳过的栈帧数（不含 getStackInfo 自身）。
+ * 获取当前执行点的调用栈信息，并按 `extraFramesToSkip` 跳过前若干内部帧。
+ * @param {number} [extraFramesToSkip=0] - 额外跳过的栈帧数（不含 getStackInfo 自身）。
  * @returns {StackFrame[]} 解析后的栈帧数组；若运行时不提供 stack 则返回空数组。
  */
-export function getStackInfo(skip_num = 0) {
+export function getStackInfo(extraFramesToSkip = 0) {
 	const error = new Error()
 	if (!error.stack) return []
-	skip_num++ // skip getStackInfo itself
-	if (globalThis.chrome || !globalThis.document) skip_num++ // chrome/node/deno: skip "Error:" line
-	const stackLines = error.stack.split('\n').slice(skip_num).filter(line => line.trim())
+	let skip = extraFramesToSkip + 1 // skip getStackInfo itself
+	if (globalThis.chrome || !globalThis.document) skip++ // chrome/node/deno: skip "Error:" line
+	const stackLines = error.stack.split('\n').slice(skip).filter(line => line.trim())
 
 	return stackLines.map(line => {
 		const match = line.match(/at\s+(?:(?<functionName>.*)\s+)?\((?<filePath>.*?):(?<line>\d+):(?<column>\d+)\)?$/) ||

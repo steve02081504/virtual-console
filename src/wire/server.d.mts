@@ -20,6 +20,26 @@ export declare function handleClientWireMessage(
 	handlers?: { expandSnapshotRef?: (ref: string) => { ok: boolean; snapshot?: ArgSnapshot; error?: string } }
 ): Record<string, unknown> | null
 
+/** `express-ws` 等挂载用的回调，以及群发 / 遍历当前连接的扩展方法。 */
+export type LogWireWebSocketHandler = ((
+	ws: {
+		readyState: number
+		send: (data: string) => void
+		on: (ev: string, fn: (...args: unknown[]) => void) => void
+		close?: (code?: number, reason?: string) => void
+	},
+	req?: unknown
+) => void) & {
+	broadcastJson: (payload: object) => void
+	forEachClient: (fn: (ws: {
+		readyState: number
+		send: (data: string) => void
+		on: (ev: string, fn: (...args: unknown[]) => void) => void
+		close?: (code?: number, reason?: string) => void
+	}) => void) => void
+	closeAllWithFinalJson: (payload: object) => Promise<void>
+}
+
 export declare function createLogWireWebSocketHandler(
 	virtualConsole: {
 		outputEntries: unknown[]
@@ -27,9 +47,5 @@ export declare function createLogWireWebSocketHandler(
 		addClearListener: (fn: () => void) => void
 		clear: () => void
 	},
-	opts?: { getMetadata?: (req: unknown) => Record<string, unknown> }
-): (ws: {
-	readyState: number
-	send: (data: string) => void
-	on: (ev: string, fn: (...args: unknown[]) => void) => void
-}, req?: unknown) => void
+	options?: { getMetadata?: (req: unknown) => Record<string, unknown> }
+): LogWireWebSocketHandler

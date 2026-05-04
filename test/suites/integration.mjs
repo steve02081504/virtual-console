@@ -1,68 +1,56 @@
-import { VirtualConsole } from '@steve02081504/virtual-console'
-
-import { TraceLogEntry } from './src/core/entries.mjs'
-import { logWirePayloadTypes } from './src/wire/protocol.mjs'
-import { createLogWireWebSocketHandler } from './src/wire/server.mjs'
 import {
+	VirtualConsole,
+	TraceLogEntry,
+	WireLogEntry,
 	DEFAULT_SNAPSHOT_DEPTH,
 	expandSnapshotRef,
 	getLogEntryArgs,
 	serializeArgSnapshot,
-} from './src/core/snapshot.mjs'
-import { getStackInfo } from './src/core/stack.mjs'
-import { formatArgs } from './src/format/segments.mjs'
+	getStackInfo,
+	defaultRenderEngine,
+	SegmentCollection,
+	buildArgsSegments,
+	formatArgs,
+} from '@steve02081504/virtual-console'
+import {
+	dispatchLogWireMessage,
+	logWirePayloadTypes,
+} from '@steve02081504/virtual-console/wire/protocol'
+import { createLogWireWebSocketHandler } from '@steve02081504/virtual-console/wire/server'
 
-let passed = 0
-let failed = 0
-
-/**
- * 断言条件为真；失败时记录失败计数并输出可读错误。
- * @param {boolean} condition - 断言条件。
- * @param {string} message - 断言说明文本。
- * @returns {void} 无返回值。
- */
-function assert(condition, message) {
-	if (condition) {
-		console.log(`  ✓ ${message}`)
-		passed++
-	} else {
-		console.error(`  ✗ FAIL: ${message}`)
-		failed++
-	}
-}
+import { assert, assertEqual, assertIncludes, passed, failed } from '../harness.mjs'
 
 /**
- * 断言两值严格相等（===）。
- * @param {unknown} actual - 实际值。
- * @param {unknown} expected - 期望值。
- * @param {string} message - 断言说明文本。
- * @returns {void} 无返回值。
+ * `supportsAnsi: true` 的 VirtualConsole：`console.log(obj)` 的聚合文本与 `formatArgs`（`LogEntry#toString` 同源）一致；obj 含 Date、number、string、bigint。
  */
-function assertEqual(actual, expected, message) {
-	if (actual === expected) {
-		console.log(`  ✓ ${message}`)
-		passed++
-	} else {
-		console.error(`  ✗ FAIL: ${message}\n    expected: ${JSON.stringify(expected)}\n    actual:   ${JSON.stringify(actual)}`)
-		failed++
-	}
-}
+async function testSupportsAnsiVcLogComplexObject() {
+	console.log('\n=== [supportsAnsi：log 含 date/number/string/bigint] ===')
 
-/**
- * 断言字符串包含指定子串。
- * @param {string} str - 目标字符串。
- * @param {string} substr - 期望出现的子串。
- * @param {string} message - 断言说明文本。
- * @returns {void} 无返回值。
- */
-function assertIncludes(str, substr, message) {
-	if (typeof str === 'string' && str.includes(substr)) {
-		console.log(`  ✓ ${message}`)
-		passed++
-	} else {
-		console.error(`  ✗ FAIL: ${message}\n    "${substr}" not found in "${str}"`)
-		failed++
+	const obj = {
+		d: new Date(0),
+		n: 42,
+		s: 'hello',
+		b: 2n,
 	}
+
+	const vc = new VirtualConsole({
+		recordOutput: true,
+		realConsoleOutput: false,
+		supportsAnsi: true,
+	})
+
+	await vc.hookAsyncContext(() => {
+		console.log(obj)
+	})
+
+	assertEqual(vc.outputEntries.length, 1, '捕获一条日志')
+	assert(vc.outputEntries[0].supportsAnsi === true, '条目 supportsAnsi')
+	assert(getLogEntryArgs(vc.outputEntries[0])[0] === obj, '参数引用一致')
+	assertEqual(
+		vc.outputs,
+		formatArgs([obj], { colorize: true }),
+		'outputs 与 formatArgs([obj], { colorize: true }) 一致',
+	)
 }
 
 /**
@@ -227,10 +215,10 @@ async function testGlobalConsoleProxy() {
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
 	let logCalls = 0
-	/** @type {import('./src/core/entries.mjs').LogEntry[]} */
+	/** @type {import('../../src/core/entries.mjs').LogEntry[]} */
 	const seenEntries = []
 	/**
-	 * @param {import('./src/core/entries.mjs').LogEntry} entry - 日志条目。
+	 * @param {import('../../src/core/entries.mjs').LogEntry} entry - 日志条目。
 	 * @returns {void}
 	 */
 	const onLog = (entry) => {
@@ -291,11 +279,9 @@ async function testCreateLogWireWebSocketHandlerWithProxy() {
 				sent.push(data)
 			},
 			/**
-			 * @param {string} _ev - 事件名。
-			 * @param {(...args: unknown[]) => void} _fn - 回调。
-			 * @returns {void}
+			 * 测试桩：`ws` 的 `on` 在本用例中未使用，保持无操作即可。
 			 */
-			on: (_ev, _fn) => { },
+			on: () => { },
 		}
 
 		const handler = createLogWireWebSocketHandler(console, {})
@@ -313,22 +299,87 @@ async function testCreateLogWireWebSocketHandlerWithProxy() {
 }
 
 /**
- * 测试 write_as 方法
+ * createLogWireWebSocketHandler 返回的函数附带 broadcastJson / forEachClient / closeAllWithFinalJson。
+ */
+async function testLogWireHandlerClientControl() {
+	console.log('\n=== [wire：handler 群发与优雅关闭] ===')
+
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	const handler = createLogWireWebSocketHandler(vc, {})
+
+	/** @type {string[]} */
+	const received = []
+	let closeEmitCount = 0
+
+	const mockWs = {
+		readyState: 1,
+		/** @type {Record<string, (...args: unknown[]) => void>} */
+		listeners: {},
+		/**
+		 * @param {string} ev - 事件名。
+		 * @param {(...args: unknown[]) => void} fn - 回调。
+		 */
+		on(ev, fn) {
+			this.listeners[ev] = fn
+		},
+		/**
+		 * @param {string} data - 下行文本。
+		 */
+		send: (data) => {
+			received.push(String(data))
+		},
+		close() {
+			this.readyState = 3
+			closeEmitCount++
+			this.listeners.close?.()
+		},
+	}
+
+	handler(/** @type {Parameters<typeof handler>[0]} */ (mockWs))
+
+	handler.broadcastJson({ type: 'host_ping', x: 1 })
+	assert(received.some((s) => {
+		try {
+			return JSON.parse(s).type === 'host_ping'
+		}
+		catch {
+			return false
+		}
+	}), 'broadcastJson 下发到已连接客户端')
+
+	let seen = 0
+	handler.forEachClient(() => { seen++ })
+	assertEqual(seen, 1, 'forEachClient 遍历到 1 个套接字')
+
+	await handler.closeAllWithFinalJson({ type: 'host_bye' })
+	assert(received.some((s) => {
+		try {
+			return JSON.parse(s).type === 'host_bye'
+		}
+		catch {
+			return false
+		}
+	}), 'closeAllWithFinalJson 先发最终 JSON')
+	assertEqual(closeEmitCount, 1, 'closeAllWithFinalJson 触发 close')
+}
+
+/**
+ * 测试 writeAs 方法
  */
 async function testWriteAs() {
-	console.log('\n=== [write_as 方法测试] ===')
+	console.log('\n=== [writeAs 方法测试] ===')
 
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
 	await vc.hookAsyncContext(() => {
-		vc.write_as('log', 'written as log')
-		vc.write_as('error', 'written as error')
+		vc.writeAs('log', 'written as log')
+		vc.writeAs('error', 'written as error')
 	})
 
-	assertEqual(vc.outputEntries.length, 2, 'write_as 记录了2条日志')
-	assertEqual(vc.outputEntries[0].level, 'log', 'write_as log 级别正确')
-	assertEqual(vc.outputEntries[1].level, 'error', 'write_as error 级别正确')
-	assertIncludes(vc.outputEntries[0].toString(), 'written as log', 'write_as 内容正确')
+	assertEqual(vc.outputEntries.length, 2, 'writeAs 记录了2条日志')
+	assertEqual(vc.outputEntries[0].level, 'log', 'writeAs log 级别正确')
+	assertEqual(vc.outputEntries[1].level, 'error', 'writeAs error 级别正确')
+	assertIncludes(vc.outputEntries[0].toString(), 'written as log', 'writeAs 内容正确')
 }
 
 /**
@@ -375,7 +426,7 @@ async function testGetStackInfo() {
 	assert(firstFrame.line > 0, 'line 大于 0')
 
 	const stackSkipped = getStackInfo(1)
-	assert(stackSkipped.length < stack.length || stackSkipped[0]?.raw !== stack[0]?.raw, 'skip_num 参数有效，跳过了帧')
+	assert(stackSkipped.length < stack.length || stackSkipped[0]?.raw !== stack[0]?.raw, 'extraFramesToSkip 参数有效，跳过了帧')
 }
 
 /**
@@ -468,7 +519,7 @@ async function testAddLogEntryListenerCallbacks() {
 		realConsoleOutput: false,
 	})
 	/**
-	 * @param {import('./src/core/entries.mjs').LogEntry} entry - 新增日志条目对象。
+	 * @param {import('../../src/core/entries.mjs').LogEntry} entry - 新增日志条目对象。
 	 * @returns {void}
 	 */
 	vc.addLogEntryListener((entry) => callbackEntries.push(entry))
@@ -525,7 +576,8 @@ async function testLogEntryStack() {
 	assert(logEntry.stack.length > 0, 'logEntry.stack 不为空')
 	assert(typeof logEntry.stack[0].filePath === 'string', 'stack 帧包含 filePath')
 	assert(typeof logEntry.stack[0].line === 'number', 'stack 帧包含 line 号')
-	assert(logEntry.stack[0].filePath.includes('test.mjs'), `console.log 首帧应为用户代码（test.mjs），实际：${logEntry.stack[0].filePath}`)
+	const logFp = String(logEntry.stack[0].filePath).replace(/\\/g, '/')
+	assert(logFp.includes('suites/integration.mjs'), `console.log 首帧应为本测试文件，实际：${logEntry.stack[0].filePath}`)
 
 	const vc2 = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
@@ -551,35 +603,36 @@ async function testLogEntryStack() {
 		!fp.startsWith('node:') && !fp.startsWith('deno:') && !fp.startsWith('ext:'),
 		`stdout 首帧不应为运行时内部路径，实际 filePath=${fp}`)
 
-	assert(fp.includes('test.mjs'), `stdout 首帧应落在 test.mjs，实际 filePath=${fp}`)
+	const nfp = String(fp).replace(/\\/g, '/')
+	assert(nfp.includes('suites/integration.mjs'), `stdout 首帧应落回本测试文件，实际 filePath=${fp}`)
 	assert(
 		top.functionName.includes('callerOfStdoutWrite'),
 		`stdout 首帧函数名应为写入调用者，实际 functionName=${top.functionName}`)
 }
 
 /**
- * 测试 write_as 在 realConsoleOutput: true 时不双重记录
+ * 测试 writeAs 在 realConsoleOutput: true 时不双重记录
  */
 async function testWriteAsNoDoubleRecord() {
-	console.log('\n=== [write_as 不双重记录测试] ===')
+	console.log('\n=== [writeAs 不双重记录测试] ===')
 
 	const capturedEntries = []
 	const vc = new VirtualConsole({
 		recordOutput: true,
 		realConsoleOutput: true,
-		base_console: new VirtualConsole({ recordOutput: false, realConsoleOutput: false }),
+		baseConsole: new VirtualConsole({ recordOutput: false, realConsoleOutput: false }),
 	})
 	/**
-	 * 收集 write_as 触发的日志，验证不会重复记录。
-	 * @param {import('./src/core/entries.mjs').LogEntry} entry - 新增日志条目对象。
+	 * 收集 writeAs 触发的日志，验证不会重复记录。
+	 * @param {import('../../src/core/entries.mjs').LogEntry} entry - 新增日志条目对象。
 	 * @returns {void} 无返回值。
 	 */
 	vc.addLogEntryListener((entry) => capturedEntries.push(entry))
 
-	vc.write_as('log', 'should appear once')
-	vc.write_as('error', 'error once')
+	vc.writeAs('log', 'should appear once')
+	vc.writeAs('error', 'error once')
 
-	assertEqual(vc.outputEntries.length, 2, 'write_as 在 realConsoleOutput: true 时只记录一次（共2条）')
+	assertEqual(vc.outputEntries.length, 2, 'writeAs 在 realConsoleOutput: true 时只记录一次（共2条）')
 	assertEqual(capturedEntries.length, 2, 'addLogEntryListener 也只被触发 2 次')
 }
 
@@ -703,12 +756,115 @@ async function testTruncatedAndExpand() {
 }
 
 /**
+ * wire：extensionHandlers、WireLogEntry、`renderAnsi`（link OSC8）
+ */
+/**
+ * printf：`formatArgs` 与 `buildArgsSegments` + `renderPlain` 共享同一 dispatch。
+ */
+function testPrintfDispatchParity() {
+	console.log('\n=== [printf 核心一致性] ===')
+
+	const args = ['[%s:%d]', 'a', 1]
+	assertEqual(formatArgs(args), '[a:1]', 'formatArgs 多占位（无独立空格段）')
+	const plain = defaultRenderEngine.renderPlain(buildArgsSegments(args))
+	assertEqual(plain, '[a:1]', 'buildArgsSegments → renderPlain 与 formatArgs 一致（独立空格段会被 strip 剥除，故用冒号模板）')
+}
+
+/**
+ * `SegmentCollection` 渲染方法为单对象参数。
+ */
+function testSegmentCollectionRenderOptions() {
+	console.log('\n=== [SegmentCollection 对象参数 API] ===')
+
+	const col = new SegmentCollection([{ kind: 'text', text: 'hello' }])
+	assertEqual(col.toPlainText({}), 'hello', 'toPlainText({})')
+	assertIncludes(col.toHtml({ htmlOptions: {} }), 'hello', 'toHtml({ htmlOptions })')
+}
+
+/**
+ * HTML：`resolveTraceFrameHref` 可覆盖 trace 栈链接。
+ */
+function testResolveTraceFrameHref() {
+	console.log('\n=== [HTML resolveTraceFrameHref] ===')
+
+	const html = defaultRenderEngine.renderHtml([{
+		kind: 'traceStack',
+		frames: [{
+			functionName: 'f',
+			filePath: '/x.mjs',
+			line: 1,
+			column: 0,
+			raw: 'at f (/x.mjs:1:0)',
+		}],
+	}], {
+		/**
+		 * @returns {string} 该栈帧在 HTML 中使用的 `href`。
+		 */
+		resolveTraceFrameHref: () => 'https://example.com/custom',
+	})
+	assertIncludes(html, 'https://example.com/custom', '自定义 trace 链接 href')
+}
+
+/**
+ * 覆盖 logWire 协议分发、扩展帧（如自定义 shutdown）及客户端辅助行为。
+ */
+function testWireHelpers() {
+	console.log('\n=== [wire 协议与辅助] ===')
+
+	let shutdown = /** @type {object | null} */ null
+	dispatchLogWireMessage({ type: 'my_shutdown', code: 42, reason: 'bye' }, {
+		extensionHandlers: {
+			/**
+			 * 捕获自定义 shutdown 帧全文。
+			 * @param {Record<string, unknown>} raw - 解析后的 JSON 对象（含 `code`/`reason` 等）。
+			 * @returns {void}
+			 */
+			my_shutdown: (raw) => {
+				shutdown = raw
+			},
+		},
+	})
+	assert(shutdown != null, 'extensionHandlers 收到自定义 shutdown')
+	assertEqual(/** @type {{ code?: number }} */ shutdown.code, 42, '自定义载荷 code')
+	assertEqual(/** @type {{ reason?: string }} */ shutdown.reason, 'bye', '自定义载荷 reason')
+
+	let ext = false
+	dispatchLogWireMessage({ type: 'my_app_ping', n: 1 }, {
+		extensionHandlers: {
+			/**
+			 * 置位：已收到 `my_app_ping` 扩展帧。
+			 * @returns {void} 无。
+			 */
+			my_app_ping: () => {
+				ext = true
+			},
+		},
+	})
+	assert(ext, 'extensionHandlers 分发自定义 type')
+
+	const w = WireLogEntry.from({
+		id: 0,
+		level: 'log',
+		method: 'log',
+		timestamp: 1,
+		plainText: 'hi',
+		segments: [{ kind: 'text', text: 'hi' }],
+	})
+	assertEqual(w.toString(), 'hi', 'WireLogEntry.toString')
+	assertEqual(w.segmentCollection.length, 1, 'segmentCollection 长度')
+
+	const ansi = defaultRenderEngine.renderAnsi([{ kind: 'link', href: 'https://a', label: 'L' }], { osc8Links: true })
+	assert(ansi.includes('\x1b]8;;'), 'link 片段 OSC8 起始')
+}
+
+/**
  * 按顺序执行全部测试，并在末尾输出汇总结果。
  * @returns {Promise<void>} 全部测试执行完成后 resolve。
  */
-async function runAllTests() {
+export async function runAllTests() {
 	console.log('🚀 开始运行所有测试...\n')
 
+	await testSupportsAnsiVcLogComplexObject()
 	await testRendering()
 	await testOutputEntries()
 	await testConsoleDir()
@@ -716,6 +872,7 @@ async function runAllTests() {
 	await testClear()
 	await testGlobalConsoleProxy()
 	await testCreateLogWireWebSocketHandlerWithProxy()
+	await testLogWireHandlerClientControl()
 	await testWriteAs()
 	await testProcessStreamRedirection()
 	await testAddLogEntryListenerCallbacks()
@@ -726,8 +883,12 @@ async function runAllTests() {
 	await testConcurrentAsyncIsolation()
 	await testGetStackInfo()
 	testFormatArgs()
+	testPrintfDispatchParity()
+	testSegmentCollectionRenderOptions()
+	testResolveTraceFrameHref()
 	await testTruncatedAndExpand()
 	await testContextIsolation()
+	testWireHelpers()
 
 	console.log(`\n${'='.repeat(50)}`)
 	if (failed === 0)
@@ -737,5 +898,3 @@ async function runAllTests() {
 		process.exit(1)
 	}
 }
-
-runAllTests()

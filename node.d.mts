@@ -47,7 +47,7 @@ export interface VirtualStream extends Writable {
 export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<VirtualConsole, NodeLogEntryLevel> {
 	/**
 	 * 为 `true` 时启用 ANSI：`freshLine` 在 TTY 上可覆盖同行、`trace` 栈文本可含 OSC 8 等。
-	 * 未指定时由 `supports-ansi` 检测；若 `base_console` 为 `VirtualConsole` 则继承其 `options.supportsAnsi`。
+	 * 未指定时由 `supports-ansi` 检测；若 `baseConsole` 为 `VirtualConsole` 则继承其 `options.supportsAnsi`。
 	 */
 	supportsAnsi?: boolean
 }
@@ -64,17 +64,24 @@ export class VirtualConsole extends Console {
 	/** 结构化日志条目数组 */
 	outputEntries: LogEntry[]
 	/** 最终合并后的配置项（日志监听请用 {@link addLogEntryListener} / {@link removeLogEntryListener}） */
-	options: Required<Omit<VirtualConsoleOptions, 'base_console'>> & {
-		base_console?: VirtualConsole | Console
+	options: Required<Omit<VirtualConsoleOptions, 'baseConsole'>> & {
+		baseConsole?: VirtualConsole | Console
 	}
 	/** `realConsoleOutput` 的透传目标控制台实例 */
-	base_console: VirtualConsole | Console
+	baseConsole: VirtualConsole | Console
 	/**
 	 * 采集调用栈时额外跳过的帧数；初始为 `0`。
 	 * 在自定义包装函数中调用 `console.*` 时，在调用前 `+1`，`finally` 中 `-1`，
 	 * 以确保 `entry.stack` 指向真正的调用方而非包装层。
 	 */
 	stackFrameSkipCount: number
+
+	/**
+	 * 与 Node `console` 实例相同的 `_stdout` / `_stderr` 表面（`Console` 基类内部会读此二字段；实现上委托给内部私有流）。
+	 * 不要与「用下划线表示私有字段」混为一谈：此处是 Node 运行时的公开契约名。
+	 */
+	_stdout: VirtualStream
+	_stderr: VirtualStream
 
 	constructor(options?: VirtualConsoleOptions)
 
@@ -124,7 +131,7 @@ export class VirtualConsole extends Console {
 	 * @param level 日志级别（可使用任意字符串）
 	 * @param args 要记录的内容
 	 */
-	write_as(level: WriteAsLevelArg, ...args: unknown[]): void
+	writeAs(level: WriteAsLevelArg, ...args: unknown[]): void
 }
 
 /** 驱动 `hookAsyncContext` 隔离的 `AsyncLocalStorage` 实例 */
@@ -132,7 +139,7 @@ export const consoleAsyncStorage: AsyncLocalStorage<VirtualConsole>
 
 /**
  * 始终在线的兜底控制台：不记录任何条目，直接将所有输出透传到原始全局 `console`。
- * 是所有自定义 VirtualConsole 的最终 `base_console` 来源。
+ * 是所有自定义 VirtualConsole 的最终 `baseConsole` 来源。
  */
 export const defaultConsole: VirtualConsole
 
@@ -168,15 +175,17 @@ export declare function serializeArgSnapshot(
 	seen?: WeakSet<object>,
 	depth?: number,
 	maxDepth?: number,
-	expandCtx?: unknown
+	expansionScope?: unknown
 ): import('./src/shared.d.mts').ArgSnapshot
+
+export declare function createExpansionScope(entry: object): {
+	allocRef(target: object): string
+}
 
 export declare function expandSnapshotRef(
 	ref: string,
 	maxDepth?: number
 ): { ok: true; snapshot: import('./src/shared.d.mts').ArgSnapshot } | { ok: false; error: string }
-
-export declare function serializeLogEntryForWire(entry: unknown, index: number): Record<string, unknown>
 
 export declare function unregisterExpandRefsForEntry(entry: object): void
 
@@ -185,17 +194,32 @@ export declare function getLogEntryArgs(entry: object): unknown[]
 export declare function stripTerminalDecorations(text: string): string
 export declare function stripOscTitleSequences(text: string): string
 export declare function terminalChunkToHtml(chunk: string): string
-export declare function streamTextToHtml(text: string): string
 export declare function coerceString(arg: unknown): string
 export declare function escapeHtml(str: string): string
-export declare function argsToSegments(
+export declare function collectPrintfFormatParts(
+	format: string,
 	args: unknown[],
-	options?: { supportsAnsi?: boolean; entry?: object; snapshotDepth?: number }
+	startArgIndex?: number
+): {
+	parts: Array<
+		| { kind: 'literal'; text: string }
+		| { kind: 'arg'; spec: string; value: unknown }
+		| { kind: 'missingSpec'; spec: string }
+	>
+	nextArgIndex: number
+}
+
+export declare function formatArgs(
+	args: unknown[],
+	options?: { colorize?: boolean; depth?: number }
+): string
+
+export declare function buildArgsSegments(
+	args: unknown[],
+	expansionScope?: object | null,
+	snapshotDepth?: number
 ): import('./src/shared.d.mts').LogSegment[]
 export declare function streamToSegments(text: string): import('./src/shared.d.mts').LogSegment[]
-export declare function segmentsToPlainText(segments: import('./src/shared.d.mts').LogSegment[]): string
-export declare function segmentsToHtml(segments: import('./src/shared.d.mts').LogSegment[]): string
-export declare function argsToHtml(args: unknown[]): string
 
 declare global {
 	var console: VirtualConsole

@@ -26,7 +26,7 @@ const entryToExpandRefs = new WeakMap()
  * @returns {void}
  */
 export function setLogEntryArgs(entry, args) {
-	logEntryArgs.set(entry, Array.isArray(args) ? args : [])
+	logEntryArgs.set(entry, args)
 }
 
 /**
@@ -35,11 +35,7 @@ export function setLogEntryArgs(entry, args) {
  * @returns {unknown[]} 构造时存入 WeakMap 的参数数组；流式条目无缓存时回退为 `[streamText]`。
  */
 export function getLogEntryArgs(entry) {
-	const stored = logEntryArgs.get(entry)
-	if (stored) return stored
-	if (entry && typeof entry.streamText === 'string')
-		return [entry.streamText]
-	return []
+	return logEntryArgs.get(entry) ?? [entry.streamText]
 }
 
 /**
@@ -83,7 +79,7 @@ export function unregisterExpandRefsForEntry(entry) {
  * @param {object} entry - 当前正在序列化的日志条目。
  * @returns {{ allocRef: (t: object) => string }} 提供 `allocRef` 以在截断处注册强引用目标。
  */
-export function makeExpandCtx(entry) {
+export function createExpansionScope(entry) {
 	return {
 		/**
 		 * 在深度边界为对象注册可展开槽位并返回不透明 ref。
@@ -114,12 +110,12 @@ function truncationLabel(value) {
 /**
  * 在达到 `maxDepth` 时将对象折叠为 `truncated` 节点，可选注册展开槽。
  * @param {object} value - 当前深度的对象值。
- * @param {ReturnType<typeof makeExpandCtx> | null} expandCtx - 若有则在对象上分配 ref；否则返回空 ref 占位。
+ * @param {ReturnType<typeof createExpansionScope> | null} expansionScope - 若有则在对象上分配 ref；否则返回空 ref 占位。
  * @returns {import('../shared.d.mts').ArgSnapshotTruncated} 始终为 `kind: 'truncated'` 的快照片段。
  */
-function truncateOrPlaceholder(value, expandCtx) {
-	if (expandCtx && value !== null && typeof value === 'object') {
-		const ref = expandCtx.allocRef(/** @type {object} */ value)
+function truncateOrPlaceholder(value, expansionScope) {
+	if (expansionScope && value !== null && typeof value === 'object') {
+		const ref = expansionScope.allocRef(/** @type {object} */ value)
 		return { kind: 'truncated', ref, label: truncationLabel(value) }
 	}
 	return { kind: 'truncated', ref: '', label: truncationLabel(value) }
@@ -132,7 +128,6 @@ function truncateOrPlaceholder(value, expandCtx) {
  * @returns {{ ok: true, snapshot: import('../shared.d.mts').ArgSnapshot } | { ok: false, error: string }} 成功带完整快照，失败带机器可读 `error` 码。
  */
 export function expandSnapshotRef(ref, maxDepth = DEFAULT_SNAPSHOT_DEPTH) {
-	if (!ref || typeof ref !== 'string') return { ok: false, error: 'invalid_ref' }
 	const slot = expandRegistry.get(ref)
 	if (!slot) return { ok: false, error: 'unknown_ref' }
 	const entry = slot.weakEntryRef.deref()
@@ -146,9 +141,9 @@ export function expandSnapshotRef(ref, maxDepth = DEFAULT_SNAPSHOT_DEPTH) {
 	refsSet?.delete(ref)
 	if (refsSet && refsSet.size === 0) entryToExpandRefs.delete(entry)
 
-	const nestedCtx = makeExpandCtx(entry)
+	const nestedScope = createExpansionScope(entry)
 	try {
-		const snapshot = serializeArgSnapshot(strongTarget, new WeakSet(), 0, maxDepth, nestedCtx)
+		const snapshot = serializeArgSnapshot(strongTarget, new WeakSet(), 0, maxDepth, nestedScope)
 		return { ok: true, snapshot }
 	}
 	catch (e) {
@@ -162,10 +157,10 @@ export function expandSnapshotRef(ref, maxDepth = DEFAULT_SNAPSHOT_DEPTH) {
  * @param {WeakSet<object>} [seen] - 循环引用检测。
  * @param {number} [depth=0] - 当前深度。
  * @param {number} [maxDepth=DEFAULT_SNAPSHOT_DEPTH] - 最大深度。
- * @param {ReturnType<typeof makeExpandCtx> | null} [expandCtx] - 若提供则深度边界生成 `truncated` 并注册展开槽。
+ * @param {ReturnType<typeof createExpansionScope> | null} [expansionScope] - 若提供则深度边界生成 `truncated` 并注册展开槽。
  * @returns {object} JSON-safe 树。
  */
-export function serializeArgSnapshot(value, seen = new WeakSet(), depth = 0, maxDepth = DEFAULT_SNAPSHOT_DEPTH, expandCtx = null) {
+export function serializeArgSnapshot(value, seen = new WeakSet(), depth = 0, maxDepth = DEFAULT_SNAPSHOT_DEPTH, expansionScope = null) {
 	if (value === null) return { kind: 'null', value: null }
 	const valueType = typeof value
 	if (valueType === 'string' || valueType === 'number' || valueType === 'boolean')
@@ -183,10 +178,10 @@ export function serializeArgSnapshot(value, seen = new WeakSet(), depth = 0, max
 	 * @param {unknown} child - 属性值或数组元素。
 	 * @returns {object} 子快照节点。
 	 */
-	const serializeChild = child => serializeArgSnapshot(child, seen, depth + 1, maxDepth, expandCtx)
+	const serializeChild = child => serializeArgSnapshot(child, seen, depth + 1, maxDepth, expansionScope)
 
 	if (depth >= maxDepth)
-		return truncateOrPlaceholder(/** @type {object} */ value, expandCtx)
+		return truncateOrPlaceholder(/** @type {object} */ value, expansionScope)
 
 	if (value instanceof Error) {
 		const entries = []

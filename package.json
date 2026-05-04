@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/virtual-console",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"description": "A virtual console for capturing and manipulating terminal output.",
 	"main": "main.mjs",
 	"type": "module",
@@ -36,11 +36,18 @@
 		"./wire/client": {
 			"types": "./src/wire/client.d.mts",
 			"default": "./src/wire/client.mjs"
+		},
+		"./wire/serialize-log-entry": {
+			"types": "./src/wire/serialize-log-entry.d.mts",
+			"default": "./src/wire/serialize-log-entry.mjs"
 		}
 	},
 	"types": "./main.d.mts",
+	"imports": {
+		"#vc/*": "./src/*"
+	},
 	"scripts": {
-		"test": "node test.mjs"
+		"test": "node test/runner.mjs"
 	},
 	"keywords": [
 		"console",

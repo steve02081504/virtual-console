@@ -19,6 +19,7 @@ export type {
 	TraceLogEntry,
 	DirLogEntry,
 	StreamLogEntry,
+	SegmentCollectionView,
 } from './src/shared.d.mts'
 
 export type { LogEntry, VirtualConsoleOptions, GlobalConsoleRouting, VirtualStream } from './node.d.mts'

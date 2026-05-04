@@ -33,5 +33,6 @@ export declare function dispatchLogWireMessage(
 		}) => void
 		onClear?: (payload: { raw: object }) => void
 		onUnknown?: (raw: object) => void
+		extensionHandlers?: Record<string, (raw: object) => void>
 	}
 ): boolean

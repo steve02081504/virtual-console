@@ -7,6 +7,7 @@ export type LogWireClientHandlers = {
 	onAppend?: (payload: { entry: unknown; raw: object }) => void
 	onClear?: (payload: { raw: object }) => void
 	onUnknown?: (raw: object) => void
+	extensionHandlers?: Record<string, (raw: object) => void>
 	onParseError?: (error: Error, rawData: unknown) => void
 	onOpen?: (event: Event) => void
 	onClose?: (event: CloseEvent) => void
@@ -36,4 +37,3 @@ export declare function attachLogWireWebSocket(
 	sendJson: (obj: object) => boolean
 	detach: () => void
 }
-

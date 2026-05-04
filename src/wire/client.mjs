@@ -14,6 +14,7 @@ import {
  * @property {function({ entries: unknown, metadata: Record<string, unknown>, raw: object }): void} [onSnapshot]
  * @property {function({ entry: unknown, raw: object }): void} [onAppend]
  * @property {function({ raw: object }): void} [onClear]
+ * @property {Record<string, function(object): void>} [extensionHandlers]
  * @property {function(object): void} [onUnknown]
  * @property {function(Error, unknown): void} [onParseError]
  * @property {function(Event): void} [onOpen]
@@ -45,6 +46,7 @@ export function attachLogWireWebSocket(ws, handlers = {}) {
 		onAppend,
 		onClear,
 		onUnknown,
+		extensionHandlers,
 		onParseError,
 		onOpen,
 		onClose,
@@ -58,21 +60,18 @@ export function attachLogWireWebSocket(ws, handlers = {}) {
 	const pendingExpands = new Map()
 
 	/**
-	 * 文本帧 → JSON → {@link dispatchLogWireMessage}；非字符串帧触发 `onParseError`。
+	 * 文本帧 → JSON → {@link dispatchLogWireMessage}；解析失败时调用 `onParseError`。
 	 * @param {MessageEvent} ev - 浏览器 `message` 事件。
 	 * @returns {void}
 	 */
 	const listener = (/** @type {MessageEvent} */ ev) => {
-		if (typeof ev.data !== 'string') {
-			onParseError?.(new TypeError('log_wire_expected_text_frame'), ev.data)
-			return
-		}
 		try {
 			const parsed = JSON.parse(ev.data)
 			dispatchLogWireMessage(parsed, {
 				onSnapshot,
 				onAppend,
 				onClear,
+				extensionHandlers,
 				/**
 				 * 兑现 {@link pendingExpands} 中的 `requestExpand` Promise。
 				 * @param {{ ref: string, ok: boolean, snapshot?: unknown, error?: string, raw: object }} payload - 服务端 `vc_expand_result` 载荷。
@@ -94,7 +93,7 @@ export function attachLogWireWebSocket(ws, handlers = {}) {
 			})
 		}
 		catch (e) {
-			onParseError?.(e instanceof Error ? e : new Error(String(e)), ev.data)
+			onParseError?.(e, ev.data)
 		}
 	}
 
@@ -118,7 +117,6 @@ export function attachLogWireWebSocket(ws, handlers = {}) {
 		 * @returns {Promise<unknown>} resolve 为快照对象；失败 reject。
 		 */
 		requestExpand: (ref) => {
-			if (!ref) return Promise.reject(new Error('invalid_ref'))
 			return new Promise((resolve, reject) => {
 				if (ws.readyState !== WebSocket.OPEN) {
 					reject(new Error('websocket_not_open'))

@@ -1,5 +1,5 @@
 /**
- * 日志线路 JSON 协议常量与浏览器侧解析（无 Node/util 依赖，便于 esm.sh 轻量导入）。
+ * 日志线路 JSON 协议（常量与浏览器侧解析；无 Node/util 依赖）。
  */
 
 /**
@@ -41,7 +41,7 @@ export function makeClearedPayload() {
 }
 
 /**
- * 从快照下行消息中提取 `type` / `entries` 之外的扩展字段（如业务注入的 `canOpenEditor`）。
+ * 从快照下行消息中提取 `type`、`entries` 之外的扩展字段（如业务注入的 `canOpenEditor`）。
  * @param {Record<string, unknown>} message - 已解析的整条 JSON 对象。
  * @returns {Record<string, unknown>} 除 `type`、`entries` 外的剩余浅拷贝字段。
  */
@@ -58,14 +58,21 @@ export function snapshotMessageMetadata(message) {
  * @param {function({ entry: unknown, raw: object }): void} [handlers.onAppend] - `vc_log_append`：单条追加。
  * @param {function({ ref: string, ok: boolean, snapshot?: unknown, error?: string, raw: object }): void} [handlers.onExpandResult] - `vc_expand_result`：惰性展开结果。
  * @param {function({ raw: object }): void} [handlers.onClear] - `vc_log_cleared`：宿主缓冲已清空。
- * @param {function(object): void} [handlers.onUnknown] - `type` 不在内置枚举时的兜底。
+ * @param {function(object): void} [handlers.onUnknown] - 未命中内置与 `extensionHandlers` 时的兜底。
+ * @param {Record<string, (raw: object) => void>} [handlers.extensionHandlers] - 按自定义 `type` 字符串路由。
  * @returns {boolean} 若识别并分发任一已知 `type` 则为 `true`，否则 `false`。
  */
 export function dispatchLogWireMessage(parsed, handlers = {}) {
-	if (!parsed || typeof parsed !== 'object') return false
 	const message = /** @type {Record<string, unknown>} */ parsed
 	const messageType = message.type
-	const { onSnapshot, onAppend, onExpandResult, onClear, onUnknown } = handlers
+	const {
+		onSnapshot,
+		onAppend,
+		onExpandResult,
+		onClear,
+		onUnknown,
+		extensionHandlers = {},
+	} = handlers
 
 	if (messageType === logWirePayloadTypes.SNAPSHOT) {
 		onSnapshot?.({
@@ -96,6 +103,10 @@ export function dispatchLogWireMessage(parsed, handlers = {}) {
 		onClear?.({
 			raw: /** @type {object} */ parsed,
 		})
+		return true
+	}
+	if (extensionHandlers[messageType]) {
+		extensionHandlers[messageType](/** @type {object} */ parsed)
 		return true
 	}
 	onUnknown?.(/** @type {object} */ parsed)

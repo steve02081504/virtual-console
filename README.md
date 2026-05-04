@@ -27,6 +27,18 @@ import { VirtualConsole } from 'https://esm.sh/@steve02081504/virtual-console';
 
 The default entry resolves to the correct Node or browser implementation at runtime, but its TypeScript types are always Node-flavoured. Use `/node` or `/browser` when you want types that strictly match your target (`stdout`/`stderr` levels, `AsyncLocalStorage`, browser scoping caveats, etc.).
 
+### Subpath entrypoints (recommended for tree-shaking)
+
+| Subpath                                                   | Purpose                                                                         |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `@steve02081504/virtual-console/node` / `…/browser`       | Smallest API surface + environment-accurate types.                              |
+| `@steve02081504/virtual-console/wire/protocol`            | Log wire `type` constants + `dispatchLogWireMessage`.                           |
+| `@steve02081504/virtual-console/wire/server`              | Server-side payload helpers + `createLogWireWebSocketHandler`.                  |
+| `@steve02081504/virtual-console/wire/client`              | `connectLogWire` / `attachLogWireWebSocket`.                                    |
+| `@steve02081504/virtual-console/wire/serialize-log-entry` | `serializeLogEntryForWire` only (DTO shape for WebSocket JSON).                 |
+
+Import **`serializeLogEntryForWire`** only from **`@steve02081504/virtual-console/wire/serialize-log-entry`**, or compose payloads with **`makeAppendPayload` / `makeSnapshotPayload`** from **`wire/server`**. Wire helpers are not re-exported from the root **`/node`** entry.
+
 ## Quick start
 
 ```javascript
@@ -72,7 +84,7 @@ const vcB = new VirtualConsole();
 
 async function work(id, delayMs) {
   console.log(`start ${id}`);
-  await new Promise(resolve => setTimeout(resolve, delayMs));
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
   console.log(`done ${id}`);
 }
 
@@ -95,7 +107,7 @@ await vc.hookAsyncContext(async () => {
   process.stderr.write('raw stderr\n');
 });
 
-console.log(vc.outputEntries.map(e => e.level));
+console.log(vc.outputEntries.map((e) => e.level));
 // ['stdout', 'stderr']
 ```
 
@@ -106,27 +118,27 @@ const vc = new VirtualConsole({ realConsoleOutput: true });
 
 for (let i = 0; i <= 3; i++) {
   vc.freshLine('build', `Building... ${i}/3`);
-  await new Promise(resolve => setTimeout(resolve, 120));
+  await new Promise((resolve) => setTimeout(resolve, 120));
 }
 vc.log('Build complete');
 ```
 
 On an ANSI-capable Node TTY, repeated `freshLine('build', ...)` updates one line. In the browser, `id` is ignored and each call is a normal log line.
 
-### Custom levels: `write_as`
+### Custom levels: `writeAs`
 
 ```javascript
 const vc = new VirtualConsole();
 
-vc.write_as('log', 'normal');
-vc.write_as('custom-level', 'custom payload');
-vc.write_as('trace', 'trace marker');
+vc.writeAs('log', 'normal');
+vc.writeAs('custom-level', 'custom payload');
+vc.writeAs('trace', 'trace marker');
 
-console.log(vc.outputEntries.map(e => e.level));
+console.log(vc.outputEntries.map((e) => e.level));
 // ['log', 'custom-level', 'debug'] — method name `'trace'` maps to semantic level `debug`
 ```
 
-With `realConsoleOutput: true` on Node, `write_as` routes warn/error/trace-style levels to stderr and the rest to stdout, similar to `console`.
+With `realConsoleOutput: true` on Node, `writeAs` routes warn/error/trace-style levels to stderr and the rest to stdout, similar to `console`.
 
 ### Cap memory: `maxLogEntries`
 
@@ -160,14 +172,14 @@ vc.addLogEntryListener(onEntry);
 | ------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `realConsoleOutput` | `false`          | Also forward to the real / underlying console                                                                                                                                                                                                                         |
 | `recordOutput`      | `true`           | When `false`, nothing is stored (passthrough can still run)                                                                                                                                                                                                           |
-| `base_console`      | platform default | Console used for `realConsoleOutput` passthrough. When set to another `VirtualConsole`, ANSI settings are inherited from it. Node default: the `VirtualConsole` active in the current async context; browser default: the active virtual console or `defaultConsole`. |
-| `supportsAnsi`      | platform auto    | Affects `freshLine`, trace formatting, `toString()` / `toHtml()`. Node: auto-detected via `supports-ansi`; browser: `!!globalThis.chrome`. Inherited from `base_console` when `base_console` is a `VirtualConsole`.                                                   |
+| `baseConsole`       | platform default | Console used for `realConsoleOutput` passthrough. When set to another `VirtualConsole`, ANSI settings are inherited from it. Node default: the `VirtualConsole` active in the current async context; browser default: the active virtual console or `defaultConsole`. |
+| `supportsAnsi`      | platform auto    | Affects `freshLine`, trace formatting, `toString()` / `toHtml()`. Node: auto-detected via `supports-ansi`; browser: `!!globalThis.chrome`. Inherited from `baseConsole` when `baseConsole` is a `VirtualConsole`.                                                     |
 | `maxLogEntries`     | `Infinity`       | Drop oldest entries when exceeded                                                                                                                                                                                                                                     |
 
 ## Results API
 
 - **`outputEntries`** — Array of captured `LogEntry` objects. Each entry exposes:
-  - `level` — semantic level string after routing (`'log'`, `'warn'`, `'error'`, `'debug'`, etc.). Note: `console.trace()` and `write_as('trace', …)` map to **`debug`** (see [Log levels](#log-levels)); use `method === 'trace'` to recognize trace-shaped entries.
+  - `level` — semantic level string after routing (`'log'`, `'warn'`, `'error'`, `'debug'`, etc.). Note: `console.trace()` and `writeAs('trace', …)` map to **`debug`** (see [Log levels](#log-levels)); use `method === 'trace'` to recognize trace-shaped entries.
   - `method` — originating console/stream method name (`'log'`, `'trace'`, `'dir'`, `'stdout'`, …). Useful when `level` alone is ambiguous (e.g. `dir` → level `log`).
   - `timestamp` — Unix timestamp in milliseconds when the entry was recorded
   - `stack` — parsed call-stack frames, each with `functionName`, `filePath`, `line`, `column`, and `raw`
@@ -186,7 +198,7 @@ vc.addLogEntryListener(onEntry);
 
 - **`options`** — The resolved configuration object for flags such as `recordOutput`, `realConsoleOutput`, `maxLogEntries`, etc.
 
-- **`base_console`** (Node) — The effective passthrough console instance resolved from the `base_console` option. Readable and writable directly on the instance after construction.
+- **`baseConsole`** (Node) — The effective passthrough console instance resolved from the `baseConsole` option. Readable and writable directly on the instance after construction.
 
 - **`stackFrameSkipCount`** — When you wrap `console` calls inside your own function, increment this before the call and restore it in `finally`. This skips the extra stack frame so `entry.stack` still points at the real caller. See [example below](#accurate-stacks-stackframeskipcount).
 
@@ -204,7 +216,7 @@ vc.addLogEntryListener(onEntry);
 
 - **`addClearListener(fn)`** / **`removeClearListener(fn)`** — Register/unregister callbacks invoked synchronously after **`clear()`** completes (buffer empty, optional underlying `clear()` already called). Use with **`createLogWireWebSocketHandler`** / **`attachLogWireWebSocket`** for remote UI sync.
 
-- **`write_as(level, ...args)`** — Record an entry at any log level, bypassing `console.*` method routing entirely. Useful for custom levels or injecting synthetic entries. With `realConsoleOutput: true` on Node, warn/error/trace-style levels go to stderr and everything else to stdout.
+- **`writeAs(level, ...args)`** — Record an entry at any log level, bypassing `console.*` method routing entirely. Useful for custom levels or injecting synthetic entries. With `realConsoleOutput: true` on Node, warn/error/trace-style levels go to stderr and everything else to stdout.
 
 On Node, `VirtualConsole` extends the built-in `Console`. In the browser, `VirtualConsole` satisfies the `Console` interface via a declaration merge, so it can be used anywhere a `Console` is expected.
 
@@ -212,40 +224,40 @@ On Node, `VirtualConsole` extends the built-in `Console`. In the browser, `Virtu
 
 Semantic **`level`** (what you read on `entry.level`) vs originating **`method`** (`entry.method`):
 
-| `entry.level`                           | Typical `entry.method` | Source                                     |
-| --------------------------------------- | ---------------------- | ------------------------------------------ |
-| `log`, `info`, `warn`, `error`, `debug` | same as level          | `console.log` … `console.debug`            |
-| `debug`                                 | `trace`                | `console.trace()` → `TraceLogEntry`        |
-| `log`                                   | `dir`                  | `console.dir()` → `DirLogEntry`            |
-| `log` / `error`                         | `stdout` / `stderr`    | `process.stdout` / `process.stderr` (Node) |
-| any string (unchanged)                  | same as level          | `write_as(level, ...)` — `trace` → level `debug`                                                       |
+| `entry.level`                           | Typical `entry.method` | Source                                          |
+| --------------------------------------- | ---------------------- | ----------------------------------------------- |
+| `log`, `info`, `warn`, `error`, `debug` | same as level          | `console.log` … `console.debug`                 |
+| `debug`                                 | `trace`                | `console.trace()` → `TraceLogEntry`             |
+| `log`                                   | `dir`                  | `console.dir()` → `DirLogEntry`                 |
+| `log` / `error`                         | `stdout` / `stderr`    | `process.stdout` / `process.stderr` (Node)      |
+| any string (unchanged)                  | same as level          | `writeAs(level, ...)` — `trace` → level `debug` |
 
 `console.trace()` stacks appear in `toString()` / `toHtml()`. With ANSI on Node, file/line links may use OSC 8.
 
 ## Log wire protocol (WebSocket JSON)
 
-For pushing serialized log entries over a WebSocket, this package defines stable `type` strings on **`logWirePayloadTypes`** (`vc_log_*`, `vc_expand_*`). Server and client must use these names only.
+Stable `type` strings live on **`logWirePayloadTypes`** (`vc_*`). Custom frames (shutdown, app events, etc.) use your own `type` plus **`extensionHandlers`** on **`dispatchLogWireMessage`** / **`attachLogWireWebSocket`**; on the server, **`JSON.stringify`** your payload and **`ws.send`** it (body shape is application-defined).
 
-| Direction | `type` (`logWirePayloadTypes`) |
-| --------- | -------------------- |
-| Server → client (initial list) | `vc_log_snapshot` |
-| Server → client (one line) | `vc_log_append` |
-| Server → client (buffer cleared) | `vc_log_cleared` |
-| Server → client (expand reply) | `vc_expand_result` |
-| Client → server (expand request) | `vc_expand_request` |
-| Client → server (request clear) | `vc_clear_request` |
+| Direction                        | `type` (`logWirePayloadTypes`) |
+| -------------------------------- | ------------------------------ |
+| Server → client (initial list)   | `vc_log_snapshot`              |
+| Server → client (one line)       | `vc_log_append`                |
+| Server → client (buffer cleared) | `vc_log_cleared`               |
+| Server → client (expand reply)   | `vc_expand_result`             |
+| Client → server (expand request) | `vc_expand_request`            |
+| Client → server (request clear)  | `vc_clear_request`             |
 
-Wire helpers are **not** re-exported from `@steve02081504/virtual-console`, `@…/node`, or `@…/browser` — import from **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, and **`/wire/client`** as needed.
+Wire protocol and helpers are **not** re-exported from the root **`/node`** or **`/browser`** entries; import them from **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, **`/wire/client`**, **`/wire/serialize-log-entry`** for tree-shaken builds.
 
-Use **`JSON.parse`** on each inbound text frame, then **`dispatchLogWireMessage`** from **`@steve02081504/virtual-console/wire/protocol`**. Snapshot payloads may include extra fields (e.g. `canOpenEditor`); handlers receive them as **`metadata`** (everything except `type` and `entries`). For **`vc_expand_result`**, pass **`onExpandResult`** to **`dispatchLogWireMessage`** only when you parse frames yourself; if you use **`attachLogWireWebSocket`** below, rely on **`requestExpand(ref)`** (Promise) instead — do not duplicate both.
+Use **`JSON.parse`** on each inbound text frame, then **`dispatchLogWireMessage`**. Snapshot **`metadata`** omits `type` and `entries`. Use **`extensionHandlers`** for custom `type` values (and **`onUnknown`** as fallback). If you use **`attachLogWireWebSocket`**, rely on **`requestExpand(ref)`** (Promise) for expand — avoid duplicating **`onExpandResult`** unless you parse frames yourself.
 
 Use **`makeAppendPayload` / `makeSnapshotPayload` / `makeExpandResponse`** from **`@steve02081504/virtual-console/wire/server`** when building messages next to `VirtualConsole`.
 
-On the server, **`handleClientWireMessage`** handles inbound JSON whose `type` is **`vc_expand_request`** and returns a reply object whose `type` is **`vc_expand_result`**. Inbound **`vc_clear_request`** is handled inside **`createLogWireWebSocketHandler`** (not by **`handleClientWireMessage`**).
+On the server, **`handleClientWireMessage`** handles inbound **`vc_expand_request`** and returns **`vc_expand_result`**. Inbound **`vc_clear_request`** is handled inside **`createLogWireWebSocketHandler`** (not by **`handleClientWireMessage`**).
 
-For Express/`ws`-style apps, **`createLogWireWebSocketHandler(virtualConsole, { getMetadata })`** from **`@steve02081504/virtual-console/wire/server`** registers **`addLogEntryListener`** once, **`addClearListener`** once (broadcasts **`vc_log_cleared`** when the host console **`clear()`** runs), and handles **`vc_clear_request`** from clients by calling **`virtualConsole.clear()`**.
+For Express/`ws`-style apps, **`createLogWireWebSocketHandler(virtualConsole, { getMetadata })`** registers **`addLogEntryListener`** once, **`addClearListener`** once (broadcasts **`vc_log_cleared`** when the host **`clear()`** runs), and handles **`vc_clear_request`** from clients by calling **`virtualConsole.clear()`**.
 
-**`connectLogWire`** / **`attachLogWireWebSocket`** are exported from **`@steve02081504/virtual-console/wire/client`**. The returned handle includes **`requestExpand(ref)`** — returns a **`Promise`** resolved with the expanded snapshot — and **`requestClear()`** (sends **`vc_clear_request`** when the socket is open). Pass **`onClear`** to react to **`vc_log_cleared`** from the server.
+**`connectLogWire`** / **`attachLogWireWebSocket`** support **`extensionHandlers`**, **`requestExpand`**, **`requestClear()`** (sends **`vc_clear_request`**). Core formatting types (**`WireLogEntry`**, **`RenderEngine`**, **`defaultRenderEngine`**, etc.) come from the package root or **`/node`** / **`/browser`**.
 
 ```javascript
 // Lightweight parse-only (CDN-friendly)
@@ -262,18 +274,18 @@ import { connectLogWire } from 'https://esm.sh/@steve02081504/virtual-console/wi
 
 Use `/node` or `/browser` for the strictest type match with your target environment. Exported types include:
 
-| Type                    | Description                                                                                                                               |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `LogEntry`              | Single log entry with `level`, `method`, `timestamp`, `stack`, `plainText`, `serializeArgs()`, `toSegments()`, `toString()`, `toHtml()` |
-| `TraceLogEntry`         | Extends `LogEntry`; appends stack in `toString()`/`toHtml()`; `supportsAnsi` controls OSC 8 links in plain-text trace output               |
-| `DirLogEntry`           | (runtime class in `src/core/entries.mjs`) Used for `console.dir`; formats the inspected object in `toString()`/`toHtml()`                    |
-| `StackFrame`            | Single parsed stack frame: `functionName`, `filePath`, `line`, `column`, `raw`                                                            |
-| `CommonLogEntryLevel`   | `'log' \| 'info' \| 'warn' \| 'error' \| 'debug' \| 'trace'`                                                                              |
-| `BrowserLogEntryLevel`  | Alias for `CommonLogEntryLevel`                                                                                                           |
-| `NodeLogEntryLevel`     | `BrowserLogEntryLevel \| 'stdout' \| 'stderr'`                                                                                            |
-| `VirtualConsoleOptions` | Constructor options; platform-specific fields differ between `/node` and `/browser`                                                       |
-| `GlobalConsoleRouting`    | Object shape returned by `getGlobalConsoleResolver()` — `getActiveConsole`, `setActiveConsole`, `runWithActiveConsole`                    |
-| `VirtualStream`         | (Node) Virtual wrapper around `process.stdout`/`process.stderr`; exposes `targetStream`, TTY properties, `getColorDepth()`, `hasColors()` |
+| Type                    | Description                                                                                                                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LogEntry`              | Single log entry with `level`, `method`, `timestamp`, `stack`, `plainText`, `serializeArgs()`, `toSegments()`, `segmentCollection`, `toString()`, `toHtml()`, `toAnsiText()` |
+| `TraceLogEntry`         | Extends `LogEntry`; appends stack in `toString()`/`toHtml()`; `supportsAnsi` controls OSC 8 links in plain-text trace output                                                 |
+| `DirLogEntry`           | (runtime class in `src/core/entries.mjs`) Used for `console.dir`; formats the inspected object in `toString()`/`toHtml()`                                                    |
+| `StackFrame`            | Single parsed stack frame: `functionName`, `filePath`, `line`, `column`, `raw`                                                                                               |
+| `CommonLogEntryLevel`   | `'log' \| 'info' \| 'warn' \| 'error' \| 'debug' \| 'trace'`                                                                                                                 |
+| `BrowserLogEntryLevel`  | Alias for `CommonLogEntryLevel`                                                                                                                                              |
+| `NodeLogEntryLevel`     | `BrowserLogEntryLevel \| 'stdout' \| 'stderr'`                                                                                                                               |
+| `VirtualConsoleOptions` | Constructor options; platform-specific fields differ between `/node` and `/browser`                                                                                          |
+| `GlobalConsoleRouting`  | Object shape returned by `getGlobalConsoleResolver()` — `getActiveConsole`, `setActiveConsole`, `runWithActiveConsole`                                                       |
+| `VirtualStream`         | (Node) Virtual wrapper around `process.stdout`/`process.stderr`; exposes `targetStream`, TTY properties, `getColorDepth()`, `hasColors()`                                    |
 
 The main entry (`@steve02081504/virtual-console`) always exposes Node-flavoured types at compile time. At runtime it resolves to the correct platform bundle.
 
@@ -319,14 +331,14 @@ In the browser, use custom reflection when you need more than one logical “act
 
 ### Node-only exports
 
-| Export                                                | Role                                                                                                                                                                                            |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `consoleAsyncStorage`                                 | The `AsyncLocalStorage` instance that drives `hookAsyncContext` isolation. From the main entry it is typed `AsyncLocalStorage<VirtualConsole> \| undefined`; from `/node` it is always present. |
-| `defaultConsole`                                      | The always-on fallback console: passes everything through to the original global `console` without recording                                                                                    |
-| `console`                                             | The patched global `console` proxy—delegates all calls to whichever `VirtualConsole` is active in the current async context                                                                     |
-| `globalConsoleAdditionalProperties`                   | Plain object merged onto the proxy on every access—assign properties here to extend `globalThis.console` without patching the proxy itself                                                      |
+| Export                                                  | Role                                                                                                                                                                                            |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `consoleAsyncStorage`                                   | The `AsyncLocalStorage` instance that drives `hookAsyncContext` isolation. From the main entry it is typed `AsyncLocalStorage<VirtualConsole> \| undefined`; from `/node` it is always present. |
+| `defaultConsole`                                        | The always-on fallback console: passes everything through to the original global `console` without recording                                                                                    |
+| `console`                                               | The patched global `console` proxy—delegates all calls to whichever `VirtualConsole` is active in the current async context                                                                     |
+| `globalConsoleAdditionalProperties`                     | Plain object merged onto the proxy on every access—assign properties here to extend `globalThis.console` without patching the proxy itself                                                      |
 | `setGlobalConsoleResolver` / `getGlobalConsoleResolver` | Replace or read the three routing callbacks that control how the proxy resolves the active instance                                                                                             |
-| `VirtualStream` (type)                                | Interface for the virtual wrappers around `process.stdout` / `process.stderr`; exposes `targetStream`, `isTTY`, `columns`, `rows`, `getColorDepth()`, `hasColors()`                             |
+| `VirtualStream` (type)                                  | Interface for the virtual wrappers around `process.stdout` / `process.stderr`; exposes `targetStream`, `isTTY`, `columns`, `rows`, `getColorDepth()`, `hasColors()`                             |
 
 ## Node vs browser
 
@@ -336,7 +348,7 @@ In the browser, use custom reflection when you need more than one logical “act
 | No-arg `hookAsyncContext()`                 | `enterWith` — scopes to the current async context              | Sets a global module variable — affects all subsequent code                                               |
 | `process.stdout` / `process.stderr` capture | Yes; writes are captured as `stdout`/`stderr` level entries    | Not available                                                                                             |
 | `freshLine` overwrite                       | Yes, on ANSI-capable TTYs                                      | No; behaves like a normal `log` call                                                                      |
-| `write_as` with `realConsoleOutput: true`   | Routes warn/error/trace-style levels to stderr, rest to stdout | Only forwards when `base_console` is also a `VirtualConsole`                                              |
+| `writeAs` with `realConsoleOutput: true`    | Routes warn/error/trace-style levels to stderr, rest to stdout | Only forwards when `baseConsole` is also a `VirtualConsole`                                               |
 | `supportsAnsi` default                      | Auto-detected via `supports-ansi` package                      | `!!globalThis.chrome`                                                                                     |
 
 ## Security

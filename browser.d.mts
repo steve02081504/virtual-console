@@ -48,8 +48,8 @@ export class VirtualConsole {
 	/** 结构化日志条目数组 */
 	outputEntries: LogEntry[]
 	/** 最终合并后的配置项（日志监听请用 {@link addLogEntryListener} / {@link removeLogEntryListener}） */
-	options: Required<Omit<VirtualConsoleOptions, 'base_console'>> & {
-		base_console?: VirtualConsole | Console
+	options: Required<Omit<VirtualConsoleOptions, 'baseConsole'>> & {
+		baseConsole?: VirtualConsole | Console
 	}
 
 	/**
@@ -106,7 +106,7 @@ export class VirtualConsole {
 	 * @param level 日志级别（可使用任意字符串）
 	 * @param args 要记录的内容
 	 */
-	write_as(level: WriteAsLevelArg, ...args: unknown[]): void
+	writeAs(level: WriteAsLevelArg, ...args: unknown[]): void
 }
 
 export interface VirtualConsole extends Console { }
@@ -148,15 +148,17 @@ export declare function serializeArgSnapshot(
 	seen?: WeakSet<object>,
 	depth?: number,
 	maxDepth?: number,
-	expandCtx?: unknown
+	expansionScope?: unknown
 ): import('./src/shared.d.mts').ArgSnapshot
+
+export declare function createExpansionScope(entry: object): {
+	allocRef(target: object): string
+}
 
 export declare function expandSnapshotRef(
 	ref: string,
 	maxDepth?: number
 ): { ok: true; snapshot: import('./src/shared.d.mts').ArgSnapshot } | { ok: false; error: string }
-
-export declare function serializeLogEntryForWire(entry: unknown, index: number): Record<string, unknown>
 
 export declare function unregisterExpandRefsForEntry(entry: object): void
 
@@ -165,17 +167,32 @@ export declare function getLogEntryArgs(entry: object): unknown[]
 export declare function stripTerminalDecorations(text: string): string
 export declare function stripOscTitleSequences(text: string): string
 export declare function terminalChunkToHtml(chunk: string): string
-export declare function streamTextToHtml(text: string): string
 export declare function coerceString(arg: unknown): string
 export declare function escapeHtml(str: string): string
-export declare function argsToSegments(
+export declare function collectPrintfFormatParts(
+	format: string,
 	args: unknown[],
-	options?: { supportsAnsi?: boolean; entry?: object; snapshotDepth?: number }
+	startArgIndex?: number
+): {
+	parts: Array<
+		| { kind: 'literal'; text: string }
+		| { kind: 'arg'; spec: string; value: unknown }
+		| { kind: 'missingSpec'; spec: string }
+	>
+	nextArgIndex: number
+}
+
+export declare function formatArgs(
+	args: unknown[],
+	options?: { colorize?: boolean; depth?: number }
+): string
+
+export declare function buildArgsSegments(
+	args: unknown[],
+	expansionScope?: object | null,
+	snapshotDepth?: number
 ): import('./src/shared.d.mts').LogSegment[]
 export declare function streamToSegments(text: string): import('./src/shared.d.mts').LogSegment[]
-export declare function segmentsToPlainText(segments: import('./src/shared.d.mts').LogSegment[]): string
-export declare function segmentsToHtml(segments: import('./src/shared.d.mts').LogSegment[]): string
-export declare function argsToHtml(args: unknown[]): string
 
 declare global {
 	var console: VirtualConsole

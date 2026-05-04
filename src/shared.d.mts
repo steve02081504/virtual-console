@@ -11,12 +11,12 @@ export type EntryLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
 
 /**
  * 捕获条目上 {@link LogEntry#level} 的语义值：`methodNameToLevel` 归一化后的结果。
- * `console.trace` / `write_as('trace')` → `debug`；Node `stdout`/`stderr` → `log` / `error`；其余字符串透传。
+ * `console.trace` / `writeAs('trace')` → `debug`；Node `stdout`/`stderr` → `log` / `error`；其余字符串透传。
  */
 export type CapturedLogLevel = EntryLevel | (string & {})
 
 /**
- * `write_as(level, …)` 等方法可用的逻辑方法名（传入 `methodNameToLevel` 之前）。
+ * `writeAs(level, …)` 等方法可用的逻辑方法名（传入 `methodNameToLevel` 之前）。
  * 与 {@link CapturedLogLevel} 不同：此处可出现 `stdout`、`stderr`、`trace` 等键名。
  */
 export type WriteAsLevelArg =
@@ -65,6 +65,19 @@ export type ArgSnapshot = Record<string, unknown> | ArgSnapshotTruncated
 /**
  * 结构化日志片段（与 `LogEntry#toSegments()` 一致，可 JSON 传输）
  */
+/** `SegmentCollection` 的稳定形状（避免 `shared` ↔ 实现模块循环引用） */
+export interface SegmentCollectionView {
+	toSegmentsArray(): LogSegment[]
+	readonly length: number
+	toPlainText(options?: { engine?: unknown }): string
+	toHtml(options?: { htmlOptions?: unknown; engine?: unknown }): string
+	toAnsiText(options?: {
+		ansiOptions?: { osc8Links?: boolean; colorize?: boolean }
+		engine?: unknown
+	}): string
+	[Symbol.iterator](): IterableIterator<LogSegment>
+}
+
 export type LogSegment =
 	| { kind: 'text'; text: string; css?: string }
 	| { kind: 'value'; snapshot: ArgSnapshot; css?: string; ansiText?: string }
@@ -72,16 +85,7 @@ export type LogSegment =
 	| { kind: 'ansi'; text: string }
 	| { kind: 'link'; href: string; label: string }
 	| { kind: 'dir'; snapshot: ArgSnapshot; dirOptions?: ArgSnapshot }
-	| {
-		kind: 'traceStack'
-		frames: Array<{
-			functionName: string
-			filePath: string
-			line: number
-			column: number
-			raw: string
-		}>
-	}
+	| { kind: 'traceStack'; frames: StackFrame[] }
 
 /** 单条日志条目接口 */
 export interface LogEntry {
@@ -101,6 +105,10 @@ export interface LogEntry {
 	readonly lines?: string[]
 	/** 将日志条目转换为纯文本字符串 */
 	toString(): string
+	/** 将 `toSegments()` 输出为终端用串（OSC 8 可选） */
+	toAnsiText(options?: { osc8Links?: boolean; colorize?: boolean }): string
+	/** 结构化片段的不可变集合视图（见 {@link SegmentCollection}） */
+	readonly segmentCollection: SegmentCollectionView
 	/** 将日志条目转为 HTML（剥 OSC 窗口标题，OSC8→`a[href]`，与 `plainText` 对应） */
 	toHtml(): string
 	/** 参数快照，深度默认与内置序列化一致 */
@@ -156,7 +164,7 @@ export interface BaseVirtualConsoleOptions<VC = unknown, L extends string = Entr
 	 * 未指定时由各平台在运行时解析（Node 使用当前上下文的活动控制台，浏览器同理）。
 	 * 设为另一个 `VirtualConsole` 时，会自动继承其 `supportsAnsi` 设置。
 	 */
-	base_console?: VC | Console
+	baseConsole?: VC | Console
 	/** 最多保留的日志条目数量，超出后自动丢弃最旧的条目。默认 Infinity */
 	maxLogEntries?: number
 }
