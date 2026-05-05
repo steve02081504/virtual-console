@@ -4,14 +4,23 @@ import process from 'node:process'
 import { Writable } from 'node:stream'
 
 import ansiEscapes from 'ansi-escapes'
-import { FullProxy } from 'full-proxy'
 import supportsAnsi from 'supports-ansi'
 
 import { newLogEntry } from '../../core/entries.mjs'
 import { unregisterExpandRefsForEntry } from '../../core/snapshot.mjs'
 import { getStackInfo } from '../../core/stack.mjs'
+import {
+	createGlobalConsoleProxy,
+	PASSTHROUGH_CONSOLE_METHODS,
+	RECORDABLE_CONSOLE_METHODS,
+	VIRTUAL_CONSOLE_ENTRY_STACK_SKIP,
+} from '../common.mjs'
 
 import { VirtualStream } from './virtual-stream.mjs'
+
+/**
+ * Node 运行时：`VirtualConsole`、`AsyncLocalStorage` 与全局 `console` 代理（与 {@link ../browser/browser-console.mjs} 对称）。
+ */
 
 /**
  * 未被代理的标准输出/错误输出流。
@@ -61,15 +70,17 @@ export class VirtualConsole extends Console {
 	 */
 	stackFrameSkipCount = 0
 	/**
-	 * 所有捕获输出拼接成的纯文本字符串（条目间以换行分隔）。
+	 * 所有捕获输出拼接成的纯文本字符串。
 	 * @returns {string} 聚合文本。
 	 */
-	get outputs() { return this.outputEntries.join('\n') }
+	get outputs() { return this.outputEntries.join('') }
 	/**
-	 * 所有捕获输出拼接成的 HTML 字符串（可直接渲染）。
+	 * 所有捕获输出拼接成的 HTML 字符串。
 	 * @returns {string} 聚合 HTML。
 	 */
-	get outputsHtml() { return this.outputEntries.map(entry => entry.toHtml()).join('<br/>\n') }
+	get outputsHtml() {
+		return this.outputEntries.map(entry => entry.toHtml()).join('')
+	}
 	/**
 	 * 结构化日志条目数组。
 	 * @type {import('../../core/entries.mjs').LogEntry[]}
@@ -175,7 +186,7 @@ export class VirtualConsole extends Console {
 			'addClearListener', 'removeClearListener'
 		])
 			this[method] = this[method].bind(this)
-		for (const method of ['log', 'info', 'warn', 'debug', 'error', 'trace', 'dir']) {
+		for (const method of RECORDABLE_CONSOLE_METHODS) {
 			if (!this[method]) continue
 			const originalMethod = this[method]
 			/**
@@ -203,6 +214,26 @@ export class VirtualConsole extends Console {
 				}
 			}
 		}
+
+		for (const method of PASSTHROUGH_CONSOLE_METHODS) {
+			if (!this[method]) continue
+			const originalMethod = this[method]
+			/**
+			 * 透传到 Node `Console` 或基类：可选 `realConsoleOutput`。
+			 * @param {...any} args - 透传参数。
+			 * @returns {unknown} 底层方法返回值。
+			 */
+			this[method] = (...args) => {
+				if (!this.options.realConsoleOutput) return originalMethod.apply(this, args)
+				this.#lastFreshLineId = null
+				try {
+					if (this.#baseConsole instanceof VirtualConsole) this.#baseConsole.stackFrameSkipCount++
+					return this.#baseConsole[method](...args)
+				} finally {
+					if (this.#baseConsole instanceof VirtualConsole) this.#baseConsole.stackFrameSkipCount--
+				}
+			}
+		}
 	}
 
 	/**
@@ -212,7 +243,7 @@ export class VirtualConsole extends Console {
 	 * @param {import('../../shared.d.mts').StackFrame[] | undefined} [stack] - 可选预采集调用栈；未传时按当前 skip 配置自动采集。
 	 * @returns {import('../../core/entries.mjs').LogEntry} 新的日志条目对象。
 	 */
-	#newLogEntry(method, args = [], stack = getStackInfo(this.stackFrameSkipCount + 2)) { // +2: #newLogEntry + caller 自身
+	#newLogEntry(method, args = [], stack = getStackInfo(this.stackFrameSkipCount + VIRTUAL_CONSOLE_ENTRY_STACK_SKIP)) {
 		return newLogEntry({ method, args, stack, supportsAnsi: this.options.supportsAnsi })
 	}
 
@@ -223,7 +254,7 @@ export class VirtualConsole extends Console {
 	 * @param {import('../../shared.d.mts').StackFrame[] | undefined} [stack] - 可选预采集调用栈；未传时按当前 skip 配置自动采集。
 	 * @returns {import('../../core/entries.mjs').LogEntry} 已写入缓冲区的日志条目对象。
 	 */
-	#addEntry(method, args = [], stack = getStackInfo(this.stackFrameSkipCount + 2)) { // +2: #addEntry + caller 自身
+	#addEntry(method, args = [], stack = getStackInfo(this.stackFrameSkipCount + VIRTUAL_CONSOLE_ENTRY_STACK_SKIP)) {
 		return this.#pushEntry(this.#newLogEntry(method, args, stack))
 	}
 
@@ -366,8 +397,8 @@ export class VirtualConsole extends Console {
 	 */
 	clear() {
 		this.#lastFreshLineId = null
-		for (const e of this.outputEntries)
-			unregisterExpandRefsForEntry(e)
+		for (const entry of this.outputEntries)
+			unregisterExpandRefsForEntry(entry)
 		this.outputEntries.length = 0
 		if (this.options.realConsoleOutput)
 			this.#baseConsole.clear()
@@ -461,36 +492,10 @@ export function getGlobalConsoleResolver() {
 /**
  * 全局控制台实例。
  */
-export const console = globalThis.console = new FullProxy(() => Object.assign({}, originalConsole, globalConsoleAdditionalProperties, getActiveConsole()), {
-	/**
-	 * 先从当前 {@link getActiveConsole} 解析（含原型上的 `addLogEntryListener` 等），
-	 * 再回落到扩展字段与 `originalConsole`：仅用 `Object.assign` 合并不继承类原型方法。
-	 * @param {object} target - 占位目标。
-	 * @param {string | symbol} property - 属性名。
-	 * @param {object} receiver - receiver。
-	 * @returns {unknown} 解析到的属性值：优先活动 `VirtualConsole`，其次扩展表，最后回落原生 `console`。
-	 */
-	get: (target, property, receiver) => {
-		target = getActiveConsole()
-		if (Reflect.has(target, property))
-			return Reflect.get(target, property, target)
-		if (property in globalConsoleAdditionalProperties)
-			return globalConsoleAdditionalProperties[property]
-		return Reflect.get(originalConsole, property, receiver)
-	},
-	/**
-	 * 设置属性时的处理逻辑。
-	 * @param {object} target - 目标对象。
-	 * @param {string | symbol} property - 要设置的属性名。
-	 * @param {any} value - 要设置的属性值。
-	 * @returns {boolean} 指示属性是否成功设置的布尔值。
-	 */
-	set: (target, property, value) => {
-		target = getActiveConsole()
-		if (property in target) return Reflect.set(target, property, value)
-		globalConsoleAdditionalProperties[property] = value
-		return true
-	}
+export const console = globalThis.console = createGlobalConsoleProxy({
+	getActiveConsole,
+	originalConsole,
+	globalConsoleAdditionalProperties,
 })
 /**
  * 重定向 process.stdout 到当前全局控制台的 `VirtualConsole#_stdout`（由 {@link VirtualConsole} 的 getter 暴露的虚拟流）。

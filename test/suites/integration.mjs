@@ -1,16 +1,19 @@
+import util from 'node:util'
+import vm from 'node:vm'
+
 import {
 	VirtualConsole,
-	TraceLogEntry,
+	LogEntry,
 	WireLogEntry,
 	DEFAULT_SNAPSHOT_DEPTH,
 	expandSnapshotRef,
 	getLogEntryArgs,
 	serializeArgSnapshot,
 	getStackInfo,
-	defaultRenderEngine,
-	SegmentCollection,
+	renderAnsi,
+	renderHtml,
+	renderPlain,
 	buildArgsSegments,
-	formatArgs,
 } from '@steve02081504/virtual-console'
 import {
 	dispatchLogWireMessage,
@@ -18,10 +21,54 @@ import {
 } from '@steve02081504/virtual-console/wire/protocol'
 import { createLogWireWebSocketHandler } from '@steve02081504/virtual-console/wire/server'
 
+
+import { pathToFileURL } from '../../src/core/stack.mjs'
+import { parseCssDecls } from '../../src/format/css-to-ansi.mjs'
 import { assert, assertEqual, assertIncludes, passed, failed } from '../harness.mjs'
 
 /**
- * `supportsAnsi: true` 的 VirtualConsole：`console.log(obj)` 的聚合文本与 `formatArgs`（`LogEntry#toString` 同源）一致；obj 含 Date、number、string、bigint。
+ * printf 风格参数 → 纯文本（等价于 `renderPlain(buildArgsSegments(args, null, DEFAULT_SNAPSHOT_DEPTH))`，仅测试使用）。
+ * @param {unknown[]} args - 与 `console.log` 一致的参数列表。
+ * @returns {string} 剥除 ANSI 后的拼接文本。
+ */
+function renderPrintfPlain(args) {
+	return renderPlain(buildArgsSegments(args, null, DEFAULT_SNAPSHOT_DEPTH))
+}
+
+/**
+ * 无 `node:url` 时降级 `pathToFileURL` 在 Windows 盘符路径上应保留 `C:` 而非 `C%3A`。
+ * @returns {void}
+ */
+function testPathToFileURLWindowsDriveUnescapedColon() {
+	console.log('\n=== [pathToFileURL：Windows 盘符 URL] ===')
+	const url = pathToFileURL('C:/Users/foo bar')
+	assert(url.startsWith('file:///C:/'), 'file URL 应以 file:///C:/ 为前缀')
+	assert(!url.includes('C%3A'), '盘符不应被误编成 C%3A')
+	assert(url.includes('foo%20bar'), '空格应编码为 %20')
+}
+
+/**
+ * `#RGBA` 四位十六进制色应识别 alpha 并参与 dim 提示（与八位 hex 一致）。
+ * @returns {void}
+ */
+function testCssHex4DigitAlphaDim() {
+	console.log('\n=== [CSS #RGBA 四位 hex → dim] ===')
+	const flags = parseCssDecls('color: #1234')
+	assert(flags.dim === true, '#1234 含非不透明 alpha 时须 dim')
+}
+
+/**
+ * Node `Console` 子类在删除实例上的 `_stdout` 后，读属性仍应命中子类 getter 并返回 `VirtualStream`。
+ * @returns {Promise<void>}
+ */
+async function testNodeVirtualConsoleStdoutUsesGetterVirtualStream() {
+	console.log('\n=== [Node：VirtualConsole#_stdout → VirtualStream] ===')
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	assert(vc._stdout?.constructor?.name === 'VirtualStream', '应经 getter 取得 VirtualStream，而非被基类 own 属性挡住')
+}
+
+/**
+ * `supportsAnsi: true` 的 VirtualConsole：`console.log(obj)` 的聚合文本等于 `renderAnsi(toSegments(), { colorize: true })`（尾换行在片段中）；obj 含 Date、number、string、bigint。
  */
 async function testSupportsAnsiVcLogComplexObject() {
 	console.log('\n=== [supportsAnsi：log 含 date/number/string/bigint] ===')
@@ -48,8 +95,8 @@ async function testSupportsAnsiVcLogComplexObject() {
 	assert(getLogEntryArgs(vc.outputEntries[0])[0] === obj, '参数引用一致')
 	assertEqual(
 		vc.outputs,
-		formatArgs([obj], { colorize: true }),
-		'outputs 与 formatArgs([obj], { colorize: true }) 一致',
+		renderAnsi(vc.outputEntries[0].toSegments(), { colorize: true }),
+		'outputs 与 toSegments→renderAnsi（换行在片段内）一致',
 	)
 }
 
@@ -136,7 +183,7 @@ async function testOutputEntries() {
 }
 
 /**
- * 测试 console.dir 被捕获为 DirLogEntry（Node / util.newLogEntry 与浏览器一致）
+ * 测试 console.dir 被捕获为 LogEntry（method === 'dir'）
  */
 async function testConsoleDir() {
 	console.log('\n=== [console.dir 捕获测试] ===')
@@ -148,9 +195,33 @@ async function testConsoleDir() {
 	})
 
 	assertEqual(vc.outputEntries.length, 1, 'dir 产生一条 outputEntry')
-	assertEqual(vc.outputEntries[0].method, 'dir', 'method 为 dir')
-	assertEqual(vc.outputEntries[0].level, 'log', '语义级别为 log')
-	assertIncludes(vc.outputEntries[0].toString(), '42', 'dir toString 包含对象内容')
+	const dirEntry = vc.outputEntries[0]
+	assertEqual(dirEntry.method, 'dir', 'method 为 dir')
+	assertEqual(dirEntry.level, 'log', '语义级别为 log')
+
+	const dirSegments = dirEntry.toSegments()
+	assert(
+		dirSegments.length === 2
+		&& dirSegments[0].kind === 'value'
+		&& 'snapshot' in dirSegments[0]
+		&& dirSegments[1].kind === 'text' && /** @type {{ text: string }} */ dirSegments[1].text === '\n',
+		'dir：单 value 段 + 尾换行 text',
+	)
+
+	const ansiFromSegments = renderAnsi(dirSegments, { colorize: dirEntry.supportsAnsi })
+	assertEqual(
+		ansiFromSegments,
+		dirEntry.toString(),
+		'dir：`renderAnsi(toSegments())` 必须与 `toString()` 一致',
+	)
+	assertEqual(
+		renderPlain(dirSegments),
+		dirEntry.toPlainText(),
+		'dir：`renderPlain(toSegments())` 必须与 `toPlainText()` 一致',
+	)
+
+	assertIncludes(dirEntry.toString(), '42', 'dir toString 包含对象内容')
+	assertIncludes(dirEntry.toHtml(), '42', 'dir toHtml 包含对象内容')
 	assertIncludes(vc.outputs, '42', 'outputs 聚合含 dir 输出')
 }
 
@@ -284,7 +355,7 @@ async function testCreateLogWireWebSocketHandlerWithProxy() {
 			on: () => { },
 		}
 
-		const handler = createLogWireWebSocketHandler(console, {})
+		const handler = createLogWireWebSocketHandler(console)
 		handler(mockWs)
 
 		console.log('wire-append-marker')
@@ -305,7 +376,7 @@ async function testLogWireHandlerClientControl() {
 	console.log('\n=== [wire：handler 群发与优雅关闭] ===')
 
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
-	const handler = createLogWireWebSocketHandler(vc, {})
+	const handler = createLogWireWebSocketHandler(vc)
 
 	/** @type {string[]} */
 	const received = []
@@ -328,6 +399,10 @@ async function testLogWireHandlerClientControl() {
 		send: (data) => {
 			received.push(String(data))
 		},
+		/**
+		 * 模拟 WebSocket：标记关闭态并触发 `close` 监听。
+		 * @returns {void}
+		 */
 		close() {
 			this.readyState = 3
 			closeEmitCount++
@@ -335,7 +410,7 @@ async function testLogWireHandlerClientControl() {
 		},
 	}
 
-	handler(/** @type {Parameters<typeof handler>[0]} */ (mockWs))
+	handler(/** @type {Parameters<typeof handler>[0]} */ mockWs)
 
 	handler.broadcastJson({ type: 'host_ping', x: 1 })
 	assert(received.some((s) => {
@@ -405,6 +480,20 @@ async function testProcessStreamRedirection() {
 	assert(err, '存在 stderr 条目')
 	assertEqual(out.level, 'log', 'process.stdout 语义级别为 log')
 	assertEqual(err.level, 'error', 'process.stderr 语义级别为 error')
+
+	const vcStreamOnly = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	await vcStreamOnly.hookAsyncContext(async () => {
+		process.stdout.write('stream-no-newline-end')
+	})
+	const streamAggHtml = vcStreamOnly.outputsHtml.trim()
+	assert(
+		!streamAggHtml.endsWith('<br/>') && !streamAggHtml.endsWith('<br>'),
+		'纯 stream 输出（无尾换行）时 outputsHtml.trim() 末尾不得为 br；stream 与 LogEntry 行尾后缀不同',
+	)
+	assert(
+		!vcStreamOnly.outputsHtml.endsWith('<br/>\n'),
+		'stream 条目不得误加 LogEntry 的 <br/>\\n 行尾',
+	)
 }
 
 /**
@@ -413,7 +502,7 @@ async function testProcessStreamRedirection() {
 async function testGetStackInfo() {
 	console.log('\n=== [getStackInfo 函数测试] ===')
 
-	const stack = getStackInfo(0)
+	const stack = getStackInfo(1)
 	assert(Array.isArray(stack), 'getStackInfo 返回数组')
 	assert(stack.length > 0, 'getStackInfo 返回非空数组')
 
@@ -425,46 +514,47 @@ async function testGetStackInfo() {
 	assert(typeof firstFrame.raw === 'string', '包含 raw 字段')
 	assert(firstFrame.line > 0, 'line 大于 0')
 
-	const stackSkipped = getStackInfo(1)
+	const stackSkipped = getStackInfo(2)
 	assert(stackSkipped.length < stack.length || stackSkipped[0]?.raw !== stack[0]?.raw, 'extraFramesToSkip 参数有效，跳过了帧')
 }
 
 /**
- * 测试 formatArgs 函数
+ * 测试 `renderPrintfPlain`（`buildArgsSegments` + `renderPlain`）。
  */
-function testFormatArgs() {
-	console.log('\n=== [formatArgs 函数测试] ===')
+function testRenderPrintfPlain() {
+	console.log('\n=== [renderPrintfPlain（printf→plain）] ===')
 
-	assertEqual(formatArgs([]), '', '空参数返回空字符串')
-	assertEqual(formatArgs(['hello']), 'hello', '单字符串正确返回')
-	assertEqual(formatArgs(['%s', 'world']), 'world', '%s 格式化正确')
-	assertEqual(formatArgs(['%d', 42]), '42', '%d 格式化正确')
-	assertEqual(formatArgs(['%f', 3.14]), '3.14', '%f 格式化正确')
-	assertEqual(formatArgs(['%%']), '%', '%% 转义正确')
-	assertEqual(formatArgs(['%f', Symbol('x')]), 'NaN', '%f 对 Symbol 返回 NaN')
-	assertEqual(formatArgs(['%d', Symbol('x')]), 'NaN', '%d 对 Symbol 返回 NaN')
+	assertEqual(renderPrintfPlain([]), '', '空参数返回空字符串')
+	assertEqual(renderPrintfPlain(['hello']), 'hello', '单字符串正确返回')
+	assertEqual(renderPrintfPlain(['%s', 'world']), 'world', '%s 格式化正确')
+	assertEqual(renderPrintfPlain(['%d', 42]), '42', '%d 格式化正确')
+	assertEqual(renderPrintfPlain(['%f', 3.14]), '3.14', '%f 格式化正确')
+	assertEqual(renderPrintfPlain(['%%']), '%%', '单实参：与 util.format 一致，不解析 %%')
+	assertEqual(renderPrintfPlain(['%%', 'y']), '% y', '多实参时 %% 转义为单 % 并消费后续参数')
+	assertEqual(renderPrintfPlain(['%f', Symbol('x')]), 'NaN', '%f 对 Symbol 返回 NaN')
+	assertEqual(renderPrintfPlain(['%d', Symbol('x')]), 'NaN', '%d 对 Symbol 返回 NaN')
 
-	const result = formatArgs(['value: %s', 'test'])
+	const result = renderPrintfPlain(['value: %s', 'test'])
 	assertEqual(result, 'value: test', '字符串中插值正确')
 
-	const multiResult = formatArgs(['a', 'b', 'c'])
+	const multiResult = renderPrintfPlain(['a', 'b', 'c'])
 	assert(typeof multiResult === 'string', '多参数返回字符串')
 
-	const objResult = formatArgs([{ key: 'value' }])
+	const objResult = renderPrintfPlain([{ key: 'value' }])
 	assert(typeof objResult === 'string', '对象参数返回字符串')
 
 	const circular = { name: 'self' }
 	circular.self = circular
-	const circularResult = formatArgs(['%o', circular])
+	const circularResult = renderPrintfPlain(['%o', circular])
 	assert(typeof circularResult === 'string', '循环对象通过 %o 格式化后返回字符串')
 	assert(circularResult.length > 0, '循环对象通过 %o 格式化后不抛错且有输出')
 
-	const err = new Error('formatArgs edge-case error')
-	const errResult = formatArgs([err])
-	assertIncludes(errResult, 'Error: formatArgs edge-case error', 'Error 参数格式化结果包含错误类型与消息')
+	const err = new Error('virtual-console printf edge-case error')
+	const errResult = renderPrintfPlain([err])
+	assertIncludes(errResult, 'Error: virtual-console printf edge-case error', 'Error 参数格式化结果包含错误类型与消息')
 	assertIncludes(errResult, 'at ', 'Error 参数格式化结果包含堆栈信息')
 
-	const traceEntry = new TraceLogEntry({
+	const traceEntry = new LogEntry({
 		method: 'trace',
 		args: ['trace label'],
 		stack: [{
@@ -476,11 +566,193 @@ function testFormatArgs() {
 		}],
 		supportsAnsi: false
 	})
-	const traceResult = formatArgs([traceEntry])
-	assertIncludes(traceResult, '"level": "debug"', 'TraceLogEntry 格式化结果包含语义 level（trace→debug）')
-	assertIncludes(traceResult, '"method": "trace"', 'TraceLogEntry 格式化结果包含 method 字段')
-	assertIncludes(traceEntry.toString(), 'trace label', 'TraceLogEntry toString 包含标签文本')
-	assertIncludes(traceResult, '"functionName": "testFormatArgs"', 'TraceLogEntry 格式化结果包含栈帧关键字段')
+	const traceResult = renderPrintfPlain([traceEntry])
+	assertIncludes(traceResult, 'debug', 'renderPrintfPlain(LogEntry) 文本包含 level 语义')
+	assertIncludes(traceResult, 'trace', 'renderPrintfPlain(LogEntry) 文本含 method 信息')
+	assertIncludes(traceEntry.toString(), 'trace label', 'LogEntry trace toString 含消息')
+	assertIncludes(traceResult, 'testFormatArgs', 'renderPrintfPlain 结果含栈帧函名信息')
+}
+
+/**
+ * 跨 realm（如 REPL / vm context）下，Date / RegExp / 装箱 Number 仍应保留类型语义；装箱 Number 的 plain 文本与 `util.inspect` 对齐。
+ */
+function testCrossRealmSnapshotKinds() {
+	console.log('\n=== [跨 realm 快照类型识别] ===')
+
+	const crossRealmDate = vm.runInNewContext('new Date("2026-05-04T13:32:05.473Z")')
+	const dateSnap = serializeArgSnapshot(crossRealmDate)
+	assertEqual(dateSnap.kind, 'Date', '跨 realm Date.kind')
+	assertEqual(dateSnap.value, '2026-05-04T13:32:05.473Z', '跨 realm Date.value 为 ISO')
+	const dateAnsi = renderAnsi([{ kind: 'value', snapshot: dateSnap }], { colorize: true })
+	assert(dateAnsi.includes('\x1b[35m'), '跨 realm Date ANSI 为紫色')
+
+	const crossRealmRegExp = vm.runInNewContext('/as/')
+	const regSnap = serializeArgSnapshot(crossRealmRegExp)
+	assertEqual(regSnap.kind, 'RegExp', '跨 realm RegExp.kind')
+	assertEqual(regSnap.value, '/as/', '跨 realm RegExp.value')
+	const regAnsi = renderAnsi([{ kind: 'value', snapshot: regSnap }], { colorize: true })
+	assert(regAnsi.includes('\x1b[31m'), '跨 realm RegExp ANSI 为红色')
+
+	const crossNum = vm.runInNewContext('new Number(0)')
+	const numSnap = serializeArgSnapshot(crossNum)
+	assertEqual(numSnap.kind, 'Number', '跨 realm 装箱 Number.kind')
+	const numPlain = renderPlain([{ kind: 'value', snapshot: numSnap }])
+	assertEqual(numPlain, util.inspect(crossNum, { colors: false }), '装箱 Number plain 与 util.inspect 一致')
+}
+
+/**
+ * 字符串字面量引号选择应尽量贴近 util.inspect（避免无谓转义）。
+ */
+function testStringLiteralQuoteParity() {
+	console.log('\n=== [字符串字面量引号策略] ===')
+	const value = '\\ba\n\n\'\''
+	const snap = serializeArgSnapshot(value)
+	const plain = renderPlain([{ kind: 'value', snapshot: snap }])
+	const inspectText = util.inspect(value, { colors: false })
+	assertEqual(plain, inspectText, 'value snapshot plain 与 util.inspect 一致')
+}
+
+/**
+ * 循环引用：`<ref *N>` / `[Circular *N]` 与 `util.inspect` 对齐；DAG 共享子对象不得误判为环。
+ */
+function testCircularSnapshotParity() {
+	console.log('\n=== [循环引用快照 vs util.inspect] ===')
+	const ring = {}
+	ring.a = ring
+	assertEqual(
+		renderPlain([{ kind: 'value', snapshot: serializeArgSnapshot(ring) }]),
+		util.inspect(ring, { colors: false }),
+		'a.a=a 式自环与 util.inspect 一致',
+	)
+
+	const selfRef = {}
+	selfRef.loop = selfRef
+	assertEqual(
+		renderPlain([{ kind: 'value', snapshot: serializeArgSnapshot(selfRef) }]),
+		util.inspect(selfRef, { colors: false }),
+		'自环属性名非 a 时仍一致',
+	)
+
+	const inner = {}
+	const dagShared = { u: inner, v: inner }
+	assertEqual(
+		renderPlain([{ kind: 'value', snapshot: serializeArgSnapshot(dagShared) }]),
+		util.inspect(dagShared, { colors: false }),
+		'无环 DAG 共享子对象与 util.inspect 一致',
+	)
+
+	const cycle = {}
+	cycle.a = cycle
+	const proxiedCycle = new Proxy(cycle, {
+		/**
+		 * 测试用 `get` 陷阱：不读取目标，始终返回字面量 `1`。
+		 * @returns {number} 固定值 `1`。
+		 */
+		get: () => 1
+	})
+	assertEqual(
+		renderPlain([{ kind: 'value', snapshot: serializeArgSnapshot(proxiedCycle) }]),
+		util.inspect(proxiedCycle, { colors: false }),
+		'Proxy 包自环：描述符取值与 util.inspect 一致',
+	)
+
+	const ac = /** @type {{ a: object, b: number }} */ {}
+	ac.a = ac
+	ac.b = 3
+	const transparent = new Proxy(ac, {
+		/**
+		 * 透明转发：与 `Reflect.get` 行为一致。
+		 * @param {object} t - Proxy 目标对象。
+		 * @param {string | symbol} k - 属性键。
+		 * @param {unknown} r - `get` 调用的 receiver。
+		 * @returns {unknown} `Reflect.get(t, k, r)` 的结果。
+		 */
+		get: (t, k, r) => Reflect.get(t, k, r)
+	})
+	assertEqual(
+		renderPlain([{ kind: 'value', snapshot: serializeArgSnapshot(transparent) }]),
+		util.inspect(transparent, { colors: false }),
+		'透明转发 Proxy：根级 <ref> 与 util.inspect 一致',
+	)
+}
+
+/**
+ * class 构造函数应渲染为 `[class Name]`（而非 `[Function: Name]`）。
+ */
+function testClassSnapshotParity() {
+	console.log('\n=== [class 快照渲染] ===')
+	const named = vm.runInNewContext('class a{}; a')
+	const namedSnap = serializeArgSnapshot(named)
+	const namedPlain = renderPlain([{ kind: 'value', snapshot: namedSnap }])
+	assertEqual(namedPlain, util.inspect(named, { colors: false }), '具名 class plain 与 util.inspect 一致')
+
+	const anonymous = vm.runInNewContext('(class {})')
+	const anonSnap = serializeArgSnapshot(anonymous)
+	const anonPlain = renderPlain([{ kind: 'value', snapshot: anonSnap }])
+	assertEqual(anonPlain, util.inspect(anonymous, { colors: false }), '匿名 class plain 与 util.inspect 一致')
+}
+
+/**
+ * Error 若已带完整 stack，不应再额外拼接一遍 `name: message`。
+ */
+function testErrorStackNoDuplicate() {
+	console.log('\n=== [Error 快照去重] ===')
+	let syntaxErr = null
+	try {
+		vm.runInNewContext('class a{}; class a{}')
+	}
+	catch (e) {
+		syntaxErr = e
+	}
+	assert(!!syntaxErr && typeof syntaxErr === 'object' && syntaxErr.name === 'SyntaxError', '应捕获到 SyntaxError')
+	const snap = serializeArgSnapshot(syntaxErr)
+	const plain = renderPlain([{ kind: 'value', snapshot: snap }])
+	const needle = `SyntaxError: ${syntaxErr.message}`
+	const occurrences = plain.split(needle).length - 1
+	assertEqual(occurrences, 1, 'SyntaxError 首行不重复')
+}
+
+/**
+ * Error 快照在 ANSI 下：message 用红色；可解析的栈路径套 OSC8（与 trace 一致）。
+ */
+function testErrorSnapshotAnsiRich() {
+	console.log('\n=== [Error 快照 ANSI 增强] ===')
+	const err = new Error('vc-peek-error-message')
+	const snap = serializeArgSnapshot(err)
+	const ansi = renderAnsi([{ kind: 'value', snapshot: snap }], { colorize: true })
+	assert(ansi.includes('\x1b[31m'), 'Error message 段含红色')
+	assert(ansi.includes('vc-peek-error-message'), '保留 message 原文')
+	assert(ansi.includes('\x1b]8;;'), '栈路径含 OSC8 超链接')
+}
+
+/**
+ * Error 快照：不存原始 stack 字符串，仅 `name` / `message` / 解析后的 `stack` 帧数组。
+ */
+function testErrorSnapshotStackFramesShape() {
+	console.log('\n=== [Error 快照：解析 stack 数组] ===')
+	const err = new Error('shape-check')
+	const snap = serializeArgSnapshot(err)
+	assertEqual(snap.kind, 'Error', 'kind')
+	assert(typeof snap.stack !== 'string', '不存原始 stack 字符串')
+	assert(Array.isArray(snap.stack), 'stack 为解析帧数组')
+	assert(snap.stack.length > 0, '有解析帧')
+	const first = snap.stack[0]
+	assert(first && typeof first.raw === 'string' && first.raw.length > 0, '首帧含 raw')
+	assert(!/^\w+Error:\s/.test(first.raw.trim()), '首帧不是 Error: 标题行')
+}
+
+/**
+ * 无栈（空帧数组或旧版无 stack 串）时：首行 `[TypeName: message]`，便于与带 `at` 栈区分。
+ */
+function testErrorSnapshotNoStackBrackets() {
+	console.log('\n=== [Error 无栈：整段中括号] ===')
+	const snap = { kind: 'Error', name: 'ReferenceError', message: 'exit is not defined', stack: [] }
+	const plain = renderPlain([{ kind: 'value', snapshot: snap }])
+	assertEqual(plain.trim(), '[ReferenceError: exit is not defined]', 'plain 整段包在中括号内')
+	const ansi = renderAnsi([{ kind: 'value', snapshot: snap }], { colorize: true })
+	assertIncludes(ansi, '[', 'ANSI 含左括号')
+	assertIncludes(ansi, 'ReferenceError', 'ANSI 含类型名')
+	assertIncludes(ansi, 'exit is not defined', 'ANSI 含 message')
 }
 
 /**
@@ -723,8 +995,6 @@ async function testTruncatedAndExpand() {
 
 	let ref = ''
 	for (const seg of segments) {
-		if (seg.kind === 'values' && seg.items?.[0])
-			ref = findTruncatedRef(seg.items[0].snapshot)
 		if (ref) break
 		if (seg.kind === 'value')
 			ref = findTruncatedRef(seg.snapshot)
@@ -737,7 +1007,7 @@ async function testTruncatedAndExpand() {
 	assert(exp.ok === true, 'expandSnapshotRef 成功')
 	assert(exp.snapshot != null, '展开得到快照')
 
-	const noCtx = serializeArgSnapshot(deep, new WeakSet(), 0, DEFAULT_SNAPSHOT_DEPTH, null)
+	const noCtx = serializeArgSnapshot(deep)
 	/**
 	 * 判断快照树中是否存在「无展开上下文」导致的空字符串 ref。
 	 * @param {unknown} snap - 任意快照子树。
@@ -756,29 +1026,74 @@ async function testTruncatedAndExpand() {
 }
 
 /**
- * wire：extensionHandlers、WireLogEntry、`renderAnsi`（link OSC8）
+ * wire：extensionHandlers、WireLogEntry、`renderAnsi`（link、colorize 时 OSC8）
  */
 /**
- * printf：`formatArgs` 与 `buildArgsSegments` + `renderPlain` 共享同一 dispatch。
+ * printf：`renderPrintfPlain` 与 `buildArgsSegments` + `renderPlain` 共享同一 dispatch。
  */
 function testPrintfDispatchParity() {
 	console.log('\n=== [printf 核心一致性] ===')
 
 	const args = ['[%s:%d]', 'a', 1]
-	assertEqual(formatArgs(args), '[a:1]', 'formatArgs 多占位（无独立空格段）')
-	const plain = defaultRenderEngine.renderPlain(buildArgsSegments(args))
-	assertEqual(plain, '[a:1]', 'buildArgsSegments → renderPlain 与 formatArgs 一致（独立空格段会被 strip 剥除，故用冒号模板）')
+	assertEqual(renderPrintfPlain(args), '[a:1]', 'renderPrintfPlain 多占位（无独立空格段）')
+	const plain = renderPlain(buildArgsSegments(args))
+	assertEqual(plain, '[a:1]', 'buildArgsSegments → renderPlain 与 renderPrintfPlain 一致（独立空格段会被 strip 剥除，故用冒号模板）')
+
+	assertEqual(renderPrintfPlain(['%%']), '%%', '单实参字符串：与 util.format 一致，不解析 %%')
+	assertEqual(
+		renderPlain(buildArgsSegments(['%%'])),
+		'%%',
+		'单实参 segments 与 native log 同为字面 %%',
+	)
 }
 
 /**
- * `SegmentCollection` 渲染方法为单对象参数。
+ * `%c`：CSS → ANSI 真彩色与 SGR（粗斜线划、半亮等）。
  */
-function testSegmentCollectionRenderOptions() {
-	console.log('\n=== [SegmentCollection 对象参数 API] ===')
+function testPrintfCssAnsiMapping() {
+	console.log('\n=== [%c → ANSI（真彩色与 SGR）] ===')
 
-	const col = new SegmentCollection([{ kind: 'text', text: 'hello' }])
-	assertEqual(col.toPlainText({}), 'hello', 'toPlainText({})')
-	assertIncludes(col.toHtml({ htmlOptions: {} }), 'hello', 'toHtml({ htmlOptions })')
+	const segs = buildArgsSegments(['%ca', 'color: red'], null, DEFAULT_SNAPSHOT_DEPTH)
+	const ansi = renderAnsi(segs, { colorize: true })
+	assertIncludes(ansi, '\x1b[38;2;255;0;0m', 'color:red → 38;2;255;0;0')
+	assertIncludes(ansi, 'a', '可见文本保留')
+	assertIncludes(ansi, '\x1b[0m', '段末 SGR 重置')
+	const plain = renderPlain(segs)
+	assert(plain === 'a' && !/\x1b/.test(plain), 'renderPlain 无转义、仅 a')
+	const noCss = renderAnsi(segs, { omitPrintfCss: true })
+	assertEqual(noCss, 'a', 'omitPrintfCss 不注入真彩色')
+
+	const segsStyle = buildArgsSegments(['%cx', 'font-style:italic;font-weight:bold;text-decoration:underline'], null, DEFAULT_SNAPSHOT_DEPTH)
+	const ansiStyle = renderAnsi(segsStyle, { colorize: true })
+	assertIncludes(ansiStyle, '\x1b[1;3;4m', '粗体+斜体+下划线合并为单条 SGR')
+	assertIncludes(ansiStyle, 'x', '正文保留')
+
+	const segsStrike = buildArgsSegments(['%cy', 'text-decoration: line-through; color: navy'], null, DEFAULT_SNAPSHOT_DEPTH)
+	const ansiStrike = renderAnsi(segsStrike, { colorize: true })
+	assertIncludes(ansiStrike, '\x1b[9;38;2;0;0;128m', '删除线 + navy 真彩色同序列')
+
+	const segsDimOp = buildArgsSegments(['%cd', 'opacity:0.5;color:red'], null, DEFAULT_SNAPSHOT_DEPTH)
+	assertIncludes(renderAnsi(segsDimOp, { colorize: true }), '\x1b[2;38;2;255;0;0m', 'opacity∈(0,1) → SGR2 + 前景色')
+	const segsRgba = buildArgsSegments(['%ce', 'color:rgba(0,255,0,0.6)'], null, DEFAULT_SNAPSHOT_DEPTH)
+	assertIncludes(renderAnsi(segsRgba, { colorize: true }), '\x1b[2;38;2;0;255;0m', 'rgba 半透明 → dim + rgb')
+	const segsLighter = buildArgsSegments(['%cf', 'font-weight: lighter'], null, DEFAULT_SNAPSHOT_DEPTH)
+	assertEqual(renderAnsi(segsLighter, { colorize: true }), '\x1b[2mf\x1b[0m', 'font-weight:lighter → SGR2')
+
+	const segsRebecca = buildArgsSegments(['%cz', 'color: rebeccapurple'], null, DEFAULT_SNAPSHOT_DEPTH)
+	assertIncludes(renderAnsi(segsRebecca, { colorize: true }), '\x1b[38;2;102;51;153m', '命名色 rebeccapurple（color-name）')
+	const segsGrey = buildArgsSegments(['%cg', 'color: grey'], null, DEFAULT_SNAPSHOT_DEPTH)
+	assertIncludes(renderAnsi(segsGrey, { colorize: true }), '\x1b[38;2;128;128;128m', '命名 grey 与 gray 一致')
+}
+
+/**
+ * `renderPlain` / `renderHtml` 顶层 API。
+ */
+function testRenderPlainHtmlOptions() {
+	console.log('\n=== [renderPlain / renderHtml 顶层 API] ===')
+
+	const segments = [{ kind: 'text', text: 'hello' }]
+	assertEqual(renderPlain(segments), 'hello', 'renderPlain')
+	assertIncludes(renderHtml(segments, {}), 'hello', 'renderHtml')
 }
 
 /**
@@ -787,15 +1102,15 @@ function testSegmentCollectionRenderOptions() {
 function testResolveTraceFrameHref() {
 	console.log('\n=== [HTML resolveTraceFrameHref] ===')
 
-	const html = defaultRenderEngine.renderHtml([{
-		kind: 'traceStack',
-		frames: [{
+	const html = renderHtml([{
+		kind: 'trace',
+		snapshot: serializeArgSnapshot([{
 			functionName: 'f',
 			filePath: '/x.mjs',
 			line: 1,
 			column: 0,
 			raw: 'at f (/x.mjs:1:0)',
-		}],
+		}]),
 	}], {
 		/**
 		 * @returns {string} 该栈帧在 HTML 中使用的 `href`。
@@ -808,11 +1123,11 @@ function testResolveTraceFrameHref() {
 /**
  * 覆盖 logWire 协议分发、扩展帧（如自定义 shutdown）及客户端辅助行为。
  */
-function testWireHelpers() {
+async function testWireHelpers() {
 	console.log('\n=== [wire 协议与辅助] ===')
 
 	let shutdown = /** @type {object | null} */ null
-	dispatchLogWireMessage({ type: 'my_shutdown', code: 42, reason: 'bye' }, {
+	await dispatchLogWireMessage({ type: 'my_shutdown', code: 42, reason: 'bye' }, {
 		extensionHandlers: {
 			/**
 			 * 捕获自定义 shutdown 帧全文。
@@ -829,7 +1144,7 @@ function testWireHelpers() {
 	assertEqual(/** @type {{ reason?: string }} */ shutdown.reason, 'bye', '自定义载荷 reason')
 
 	let ext = false
-	dispatchLogWireMessage({ type: 'my_app_ping', n: 1 }, {
+	await dispatchLogWireMessage({ type: 'my_app_ping', n: 1 }, {
 		extensionHandlers: {
 			/**
 			 * 置位：已收到 `my_app_ping` 扩展帧。
@@ -847,14 +1162,27 @@ function testWireHelpers() {
 		level: 'log',
 		method: 'log',
 		timestamp: 1,
-		plainText: 'hi',
 		segments: [{ kind: 'text', text: 'hi' }],
+	}, {
+		/**
+		 * 无截断 ref 时不会调用。
+		 * @returns {Promise<never>} 不应被触发。
+		 */
+		requestExpand: async () => {
+			throw new Error('unexpected_expand')
+		},
+		supportsAnsi: false,
 	})
-	assertEqual(w.toString(), 'hi', 'WireLogEntry.toString')
-	assertEqual(w.segmentCollection.length, 1, 'segmentCollection 长度')
+	assertEqual(await w.renderPlain(), 'hi', 'WireLogEntry renderPlain（由 segments）')
+	assertEqual(await w.renderString(), 'hi', 'WireLogEntry renderString')
+	assertIncludes(await w.renderHtml(), 'hi', 'WireLogEntry renderHtml')
+	assertEqual(w.segments.length, 1, 'segments 长度')
 
-	const ansi = defaultRenderEngine.renderAnsi([{ kind: 'link', href: 'https://a', label: 'L' }], { osc8Links: true })
-	assert(ansi.includes('\x1b]8;;'), 'link 片段 OSC8 起始')
+	const ansi = renderAnsi([{
+		kind: 'text',
+		text: '\x1b]8;;https://a\x07L\x1b]8;;\x07',
+	}], { colorize: true })
+	assert(ansi.includes('\x1b]8;;'), 'text 段可承载 OSC8 超链接起始序列')
 }
 
 /**
@@ -865,6 +1193,9 @@ export async function runAllTests() {
 	console.log('🚀 开始运行所有测试...\n')
 
 	await testSupportsAnsiVcLogComplexObject()
+	await testNodeVirtualConsoleStdoutUsesGetterVirtualStream()
+	testPathToFileURLWindowsDriveUnescapedColon()
+	testCssHex4DigitAlphaDim()
 	await testRendering()
 	await testOutputEntries()
 	await testConsoleDir()
@@ -882,13 +1213,22 @@ export async function runAllTests() {
 	await testConsecutiveStdoutMerge()
 	await testConcurrentAsyncIsolation()
 	await testGetStackInfo()
-	testFormatArgs()
+	testRenderPrintfPlain()
+	testCrossRealmSnapshotKinds()
+	testStringLiteralQuoteParity()
+	testCircularSnapshotParity()
+	testClassSnapshotParity()
+	testErrorStackNoDuplicate()
+	testErrorSnapshotAnsiRich()
+	testErrorSnapshotStackFramesShape()
+	testErrorSnapshotNoStackBrackets()
 	testPrintfDispatchParity()
-	testSegmentCollectionRenderOptions()
+	testPrintfCssAnsiMapping()
+	testRenderPlainHtmlOptions()
 	testResolveTraceFrameHref()
 	await testTruncatedAndExpand()
 	await testContextIsolation()
-	testWireHelpers()
+	await testWireHelpers()
 
 	console.log(`\n${'='.repeat(50)}`)
 	if (failed === 0)

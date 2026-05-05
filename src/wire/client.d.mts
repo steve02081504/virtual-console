@@ -1,13 +1,16 @@
+import type { WireLogEntry } from './wire-log-entry.mjs'
+
+export { WireLogEntry } from './wire-log-entry.mjs'
+
 export type LogWireClientHandlers = {
-	onSnapshot?: (payload: {
-		entries: unknown
-		metadata: Record<string, unknown>
-		raw: object
-	}) => void
-	onAppend?: (payload: { entry: unknown; raw: object }) => void
-	onClear?: (payload: { raw: object }) => void
-	onUnknown?: (raw: object) => void
-	extensionHandlers?: Record<string, (raw: object) => void>
+	/** 未指定时使用 `supports-ansi` 包的环境检测结果。 */
+	supportsAnsi?: boolean
+	onSnapshot?: (entries: WireLogEntry[]) => void | Promise<void>
+	onAppend?: (entry: WireLogEntry) => void | Promise<void>
+	onClear?: () => void | Promise<void>
+	onUnknown?: (raw: object) => void | Promise<void>
+	extensionHandlers?: Record<string, (raw: object) => void | Promise<void>>
+	/** JSON 解析失败，或 `dispatchLogWireMessage` 异步分发中回调抛错、reject */
 	onParseError?: (error: Error, rawData: unknown) => void
 	onOpen?: (event: Event) => void
 	onClose?: (event: CloseEvent) => void
@@ -26,7 +29,7 @@ export declare function connectLogWire(
 	detach: () => void
 }
 
-export declare function attachLogWireWebSocket(
+export declare function attachLogWire(
 	ws: WebSocket,
 	handlers?: LogWireClientHandlers
 ): {

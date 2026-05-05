@@ -3,14 +3,11 @@
  */
 
 /**
- * 日志条目类型与工厂：`newLogEntry` 及各 `*LogEntry` 实现。
+ * 日志条目类型与工厂：`LogEntry` / `newLogEntry`。
  */
 export {
 	newLogEntry,
 	LogEntry,
-	StreamLogEntry,
-	DirLogEntry,
-	TraceLogEntry,
 } from '../core/entries.mjs'
 
 /**
@@ -18,6 +15,7 @@ export {
  */
 export {
 	getStackInfo,
+	parseErrorStack,
 	trimLeadingRuntimeInternalFrames,
 } from '../core/stack.mjs'
 
@@ -28,7 +26,6 @@ export {
 	serializeArgSnapshot,
 	expandSnapshotRef,
 	DEFAULT_SNAPSHOT_DEPTH,
-	unregisterExpandRefsForEntry,
 	getLogEntryArgs,
 	createExpansionScope,
 } from '../core/snapshot.mjs'
@@ -39,8 +36,6 @@ export {
 export {
 	stripTerminalDecorations,
 	stripOscTitleSequences,
-	terminalChunkToHtml,
-	coerceString,
 	escapeHtml,
 } from '../format/ansi.mjs'
 
@@ -50,23 +45,16 @@ export {
 export {
 	buildArgsSegments,
 	collectPrintfFormatParts,
-	formatArgs,
-	streamToSegments,
 } from '../format/segments.mjs'
 
 /**
- * 不可变的结构化片段集合视图（`toSegments()` 结果封装）。
- */
-export { SegmentCollection } from '../format/segment_collection.mjs'
-
-/**
- * 按目标（纯文本 / HTML / ANSI）渲染 `LogSegment[]` 的可插拔引擎。
+ * 按目标（纯文本 / HTML / ANSI）渲染 `LogSegment[]`。
  */
 export {
-	RenderEngine,
-	RendererRegistry,
-	defaultRenderEngine,
-} from '../format/render_engine.mjs'
+	renderPlain,
+	renderAnsi,
+	renderHtml,
+} from '../format/render.mjs'
 
 /**
  * 线路传输用的弱类型日志条目视图（由 JSON 载荷构造）。

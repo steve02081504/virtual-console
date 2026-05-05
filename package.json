@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/virtual-console",
-	"version": "0.2.3",
+	"version": "0.2.4",
 	"description": "A virtual console for capturing and manipulating terminal output.",
 	"main": "main.mjs",
 	"type": "module",
@@ -47,7 +47,8 @@
 		"#vc/*": "./src/*"
 	},
 	"scripts": {
-		"test": "node test/runner.mjs"
+		"test": "node test/runner.mjs",
+		"repl": "node scripts/segment-repl.mjs"
 	},
 	"keywords": [
 		"console",
@@ -64,6 +65,7 @@
 	"dependencies": {
 		"ansi_up": "latest",
 		"ansi-escapes": "latest",
+		"color-name": "latest",
 		"full-proxy": "latest",
 		"supports-ansi": "latest"
 	}

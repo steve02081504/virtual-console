@@ -27,15 +27,17 @@ import { VirtualConsole } from 'https://esm.sh/@steve02081504/virtual-console';
 
 The default entry resolves to the correct Node or browser implementation at runtime, but its TypeScript types are always Node-flavoured. Use `/node` or `/browser` when you want types that strictly match your target (`stdout`/`stderr` levels, `AsyncLocalStorage`, browser scoping caveats, etc.).
 
+The default entry (`.`) only re-exports **`VirtualConsole`**, **`console`**, **`defaultConsole`**, **`consoleAsyncStorage`**, **`globalConsoleAdditionalProperties`**, **`setGlobalConsoleResolver`**, and **`getGlobalConsoleResolver`**. Import **`renderPlain`**, **`renderAnsi`**, **`renderHtml`**, **`WireLogEntry`**, **`newLogEntry`**, **`LogEntry`**, stack/snapshot helpers, and other symbols from **`@steve02081504/virtual-console/node`** or **`@steve02081504/virtual-console/browser`**.
+
 ### Subpath entrypoints (recommended for tree-shaking)
 
-| Subpath                                                   | Purpose                                                                         |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `@steve02081504/virtual-console/node` / `…/browser`       | Smallest API surface + environment-accurate types.                              |
-| `@steve02081504/virtual-console/wire/protocol`            | Log wire `type` constants + `dispatchLogWireMessage`.                           |
-| `@steve02081504/virtual-console/wire/server`              | Server-side payload helpers + `createLogWireWebSocketHandler`.                  |
-| `@steve02081504/virtual-console/wire/client`              | `connectLogWire` / `attachLogWireWebSocket`.                                    |
-| `@steve02081504/virtual-console/wire/serialize-log-entry` | `serializeLogEntryForWire` only (DTO shape for WebSocket JSON).                 |
+| Subpath                                                   | Purpose                                                                                                                                                         |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@steve02081504/virtual-console/node` / `…/browser`       | Full platform API (`VirtualConsole`, `WireLogEntry`, `renderPlain` / `renderAnsi` / `renderHtml`, stack & snapshot helpers, etc.) + environment-accurate types. |
+| `@steve02081504/virtual-console/wire/protocol`            | Log wire `type` constants + `dispatchLogWireMessage`.                                                                                                           |
+| `@steve02081504/virtual-console/wire/server`              | Server-side payload helpers + `createLogWireWebSocketHandler`.                                                                                                  |
+| `@steve02081504/virtual-console/wire/client`              | `connectLogWire` / `attachLogWireWebSocket`.                                                                                                                    |
+| `@steve02081504/virtual-console/wire/serialize-log-entry` | `serializeLogEntryForWire` only (flat DTO for WebSocket JSON: `segments`, callsite metadata; no raw `args`).                                                    |
 
 Import **`serializeLogEntryForWire`** only from **`@steve02081504/virtual-console/wire/serialize-log-entry`**, or compose payloads with **`makeAppendPayload` / `makeSnapshotPayload`** from **`wire/server`**. Wire helpers are not re-exported from the root **`/node`** entry.
 
@@ -183,18 +185,17 @@ vc.addLogEntryListener(onEntry);
   - `method` — originating console/stream method name (`'log'`, `'trace'`, `'dir'`, `'stdout'`, …). Useful when `level` alone is ambiguous (e.g. `dir` → level `log`).
   - `timestamp` — Unix timestamp in milliseconds when the entry was recorded
   - `stack` — parsed call-stack frames, each with `functionName`, `filePath`, `line`, `column`, and `raw`
-  - `plainText` — readable text with ANSI/OSC stripped (good for search/filter)
   - `serializeArgs()` — JSON-serializable snapshots of the original arguments (depth-limited)
   - `toSegments()` — structured fragments for UI mapping (`LogSegment[]`)
-  - `toString()` / `toHtml()` — render the entry as plain text or HTML
+  - `toString()` / `toPlainText()` / `toHtml()` — ANSI terminal text, unescaped plain text, and HTML respectively
 
-  `console.dir()` produces `DirLogEntry` instances (see `src/core/entries.mjs`): `level` is **`log`**, `method` is **`dir`**; `toString()` / `toHtml()` render the inspected object like `console.dir`, honoring `console.dir` options when provided.
+  `console.dir()` produces **`LogEntry`** instances with `level` **`log`** and `method` **`dir`**; `toString()` / `toHtml()` render the inspected object like `console.dir`, honoring `console.dir` options when provided.
 
-  `console.trace()` calls produce `TraceLogEntry` instances (`level` **`debug`**, `method` **`trace`**), whose `toString()` / `toHtml()` append formatted stack output after the message. They inherit `supportsAnsi` from the host `VirtualConsole` options; when true, `toString()` may embed OSC 8 hyperlink sequences for file/line references.
+  `console.trace()` produces **`LogEntry`** instances with `level` **`debug`** and `method` **`trace`**; `toString()` / `toHtml()` append formatted stack output after the message. They inherit `supportsAnsi` from the host `VirtualConsole` options; when true, `toString()` may embed OSC 8 hyperlink sequences for file/line references.
 
-- **`outputs`** — All captured output joined into a single plain-text string (entries separated by newlines).
+- **`outputs`** — Concatenation of each entry’s `toString()`: typical console-backed **`LogEntry`** rows end with `\n` per line; **`stdout`**/**`stderr`** stream-backed **`LogEntry`** rows pass through raw stream bytes without an extra delimiter.
 
-- **`outputsHtml`** — All captured output joined into a single HTML string, safe to render directly.
+- **`outputsHtml`** — Concatenation of each entry’s `toHtml()`. Console-backed **`LogEntry`** rows (including `dir` / `trace`) append `<br/>\n`; stream-backed **`LogEntry`** rows from **`stdout`**/**`stderr`** and raw wire line payloads do not, safe to render directly.
 
 - **`options`** — The resolved configuration object for flags such as `recordOutput`, `realConsoleOutput`, `maxLogEntries`, etc.
 
@@ -227,8 +228,8 @@ Semantic **`level`** (what you read on `entry.level`) vs originating **`method`*
 | `entry.level`                           | Typical `entry.method` | Source                                          |
 | --------------------------------------- | ---------------------- | ----------------------------------------------- |
 | `log`, `info`, `warn`, `error`, `debug` | same as level          | `console.log` … `console.debug`                 |
-| `debug`                                 | `trace`                | `console.trace()` → `TraceLogEntry`             |
-| `log`                                   | `dir`                  | `console.dir()` → `DirLogEntry`                 |
+| `debug`                                 | `trace`                | `console.trace()` → **`LogEntry`**              |
+| `log`                                   | `dir`                  | `console.dir()` → **`LogEntry`**                |
 | `log` / `error`                         | `stdout` / `stderr`    | `process.stdout` / `process.stderr` (Node)      |
 | any string (unchanged)                  | same as level          | `writeAs(level, ...)` — `trace` → level `debug` |
 
@@ -247,17 +248,17 @@ Stable `type` strings live on **`logWirePayloadTypes`** (`vc_*`). Custom frames 
 | Client → server (expand request) | `vc_expand_request`            |
 | Client → server (request clear)  | `vc_clear_request`             |
 
-Wire protocol and helpers are **not** re-exported from the root **`/node`** or **`/browser`** entries; import them from **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, **`/wire/client`**, **`/wire/serialize-log-entry`** for tree-shaken builds.
+Wire protocol modules are **not** re-exported from **`/node`** or **`/browser`**; import them from **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, **`/wire/client`**, or **`/wire/serialize-log-entry`** for tree-shaken builds.
 
-Use **`JSON.parse`** on each inbound text frame, then **`dispatchLogWireMessage`**. Snapshot **`metadata`** omits `type` and `entries`. Use **`extensionHandlers`** for custom `type` values (and **`onUnknown`** as fallback). If you use **`attachLogWireWebSocket`**, rely on **`requestExpand(ref)`** (Promise) for expand — avoid duplicating **`onExpandResult`** unless you parse frames yourself.
+Use **`JSON.parse`** on each inbound text frame, then **`await dispatchLogWireMessage`** (callbacks may be `async`). **`onSnapshot`** receives **`entries`** only; **`onAppend`** receives the **`entry`** object only; **`onClear`** takes no arguments. Use **`extensionHandlers`** for custom `type` values (and **`onUnknown`** as fallback). If you use **`attachLogWireWebSocket`**, rely on **`requestExpand(ref)`** (Promise) for expand — avoid duplicating **`onExpandResult`** unless you parse frames yourself.
 
 Use **`makeAppendPayload` / `makeSnapshotPayload` / `makeExpandResponse`** from **`@steve02081504/virtual-console/wire/server`** when building messages next to `VirtualConsole`.
 
 On the server, **`handleClientWireMessage`** handles inbound **`vc_expand_request`** and returns **`vc_expand_result`**. Inbound **`vc_clear_request`** is handled inside **`createLogWireWebSocketHandler`** (not by **`handleClientWireMessage`**).
 
-For Express/`ws`-style apps, **`createLogWireWebSocketHandler(virtualConsole, { getMetadata })`** registers **`addLogEntryListener`** once, **`addClearListener`** once (broadcasts **`vc_log_cleared`** when the host **`clear()`** runs), and handles **`vc_clear_request`** from clients by calling **`virtualConsole.clear()`**.
+For Express/`ws`-style apps, **`createLogWireWebSocketHandler(virtualConsole)`** registers **`addLogEntryListener`** once, **`addClearListener`** once (broadcasts **`vc_log_cleared`** when the host **`clear()`** runs), and handles **`vc_clear_request`** from clients by calling **`virtualConsole.clear()`**.
 
-**`connectLogWire`** / **`attachLogWireWebSocket`** support **`extensionHandlers`**, **`requestExpand`**, **`requestClear()`** (sends **`vc_clear_request`**). Core formatting types (**`WireLogEntry`**, **`RenderEngine`**, **`defaultRenderEngine`**, etc.) come from the package root or **`/node`** / **`/browser`**.
+**`connectLogWire`** / **`attachLogWireWebSocket`** pass **`WireLogEntry[]`** to **`onSnapshot`**, a single **`WireLogEntry`** to **`onAppend`**, and no arguments to **`onClear`**. Import **`WireLogEntry`** from **`/wire/client`** (or from **`/node`** / **`/browser`**, which re-export the same class). After **`vc_expand_*`** resolves **`truncated`** nodes, **`await entry.renderString()`** (ANSI), **`await entry.renderPlain()`**, and **`await entry.renderHtml()`** render from the payload’s **`segments`**. Options include **`supportsAnsi`** (defaults to **`supports-ansi`** detection). Also supports **`extensionHandlers`**, **`requestExpand`**, and **`requestClear()`** (sends **`vc_clear_request`**). Low-level **`renderPlain`** / **`renderAnsi`** / **`renderHtml`** (for raw **`LogSegment[]`**) are only exported from **`/node`** or **`/browser`**, not from the default `.` entry.
 
 ```javascript
 // Lightweight parse-only (CDN-friendly)
@@ -274,18 +275,18 @@ import { connectLogWire } from 'https://esm.sh/@steve02081504/virtual-console/wi
 
 Use `/node` or `/browser` for the strictest type match with your target environment. Exported types include:
 
-| Type                    | Description                                                                                                                                                                  |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LogEntry`              | Single log entry with `level`, `method`, `timestamp`, `stack`, `plainText`, `serializeArgs()`, `toSegments()`, `segmentCollection`, `toString()`, `toHtml()`, `toAnsiText()` |
-| `TraceLogEntry`         | Extends `LogEntry`; appends stack in `toString()`/`toHtml()`; `supportsAnsi` controls OSC 8 links in plain-text trace output                                                 |
-| `DirLogEntry`           | (runtime class in `src/core/entries.mjs`) Used for `console.dir`; formats the inspected object in `toString()`/`toHtml()`                                                    |
-| `StackFrame`            | Single parsed stack frame: `functionName`, `filePath`, `line`, `column`, `raw`                                                                                               |
-| `CommonLogEntryLevel`   | `'log' \| 'info' \| 'warn' \| 'error' \| 'debug' \| 'trace'`                                                                                                                 |
-| `BrowserLogEntryLevel`  | Alias for `CommonLogEntryLevel`                                                                                                                                              |
-| `NodeLogEntryLevel`     | `BrowserLogEntryLevel \| 'stdout' \| 'stderr'`                                                                                                                               |
-| `VirtualConsoleOptions` | Constructor options; platform-specific fields differ between `/node` and `/browser`                                                                                          |
-| `GlobalConsoleRouting`  | Object shape returned by `getGlobalConsoleResolver()` — `getActiveConsole`, `setActiveConsole`, `runWithActiveConsole`                                                       |
-| `VirtualStream`         | (Node) Virtual wrapper around `process.stdout`/`process.stderr`; exposes `targetStream`, TTY properties, `getColorDepth()`, `hasColors()`                                    |
+| Type                    | Description                                                                                                                                                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LogEntry`              | Single log entry with `level`, `method`, `timestamp`, `stack`, `serializeArgs()`, `toSegments()`; sync **`toString()`** (ANSI), **`toPlainText()`**, **`toHtml()`**                                 |
+| `WireLogEntry`          | Wire-side view of a JSON payload: async **`renderString()`** / **`renderPlain()`** / **`renderHtml()`** after `truncated` expansion; import from **`/wire/client`** or **`/node`** / **`/browser`** |
+| `CapturedLogLevel`      | Normalized semantic `entry.level` after routing (extends built-in levels with custom strings when needed)                                                                                           |
+| `WriteAsLevelArg`       | Method-style names accepted before routing (`trace`, `dir`, `stdout`, `stderr`, …)                                                                                                                  |
+| `ArgSnapshot`           | JSON-serializable snapshot shape used in segments and `serializeArgs()`                                                                                                                             |
+| `LogSegment`            | Discriminated union from `toSegments()` (`text`, `css`, `value`, `trace`)                                                                                                                           |
+| `StackFrame`            | Single parsed stack frame: `functionName`, `filePath`, `line`, `column`, `raw`                                                                                                                      |
+| `VirtualConsoleOptions` | Constructor options; platform-specific fields differ between `/node` and `/browser`                                                                                                                 |
+| `GlobalConsoleRouting`  | Object shape returned by `getGlobalConsoleResolver()` — `getActiveConsole`, `setActiveConsole`, `runWithActiveConsole`                                                                              |
+| `VirtualStream`         | (Node) Virtual wrapper around `process.stdout`/`process.stderr`; exposes `targetStream`, TTY properties, `getColorDepth()`, `hasColors()`                                                           |
 
 The main entry (`@steve02081504/virtual-console`) always exposes Node-flavoured types at compile time. At runtime it resolves to the correct platform bundle.
 
@@ -350,6 +351,12 @@ In the browser, use custom reflection when you need more than one logical “act
 | `freshLine` overwrite                       | Yes, on ANSI-capable TTYs                                      | No; behaves like a normal `log` call                                                                      |
 | `writeAs` with `realConsoleOutput: true`    | Routes warn/error/trace-style levels to stderr, rest to stdout | Only forwards when `baseConsole` is also a `VirtualConsole`                                               |
 | `supportsAnsi` default                      | Auto-detected via `supports-ansi` package                      | `!!globalThis.chrome`                                                                                     |
+
+## Development
+
+```bash
+npm test
+```
 
 ## Security
 

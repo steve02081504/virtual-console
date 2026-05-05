@@ -10,16 +10,9 @@
  */
 
 export type {
-	CommonLogEntryLevel,
-	BrowserLogEntryLevel,
-	NodeLogEntryLevel,
 	CapturedLogLevel,
 	WriteAsLevelArg,
 	StackFrame,
-	TraceLogEntry,
-	DirLogEntry,
-	StreamLogEntry,
-	SegmentCollectionView,
 } from './src/shared.d.mts'
 
 export type { LogEntry, VirtualConsoleOptions, GlobalConsoleRouting, VirtualStream } from './node.d.mts'

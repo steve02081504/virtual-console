@@ -27,15 +27,6 @@ export type WriteAsLevelArg =
 	| 'stderr'
 	| (string & {})
 
-/** 等同于 {@link CapturedLogLevel}（保留原名供兼容导入） */
-export type CommonLogEntryLevel = CapturedLogLevel
-
-/** 浏览器侧条目语义级别上界 */
-export type BrowserLogEntryLevel = CapturedLogLevel
-
-/** Node 侧条目语义级别上界（条目上不会出现字面 `stdout`/`stderr`——流条目映射为 `log`/`error`） */
-export type NodeLogEntryLevel = CapturedLogLevel
-
 /**
  * 调用栈帧信息（Node.js 和浏览器均支持；file:// URL 在 Node.js 中自动解析为绝对路径）
  */
@@ -59,36 +50,35 @@ export interface ArgSnapshotTruncated {
 	label?: string
 }
 
-/** `serializeArgSnapshot` / `toSegments` 产生的 JSON 可传输快照（含 `truncated`） */
+/**
+ * `serializeArgSnapshot` / `toSegments` 产生的 JSON 可传输快照（含 `truncated`）。
+ * `kind: 'Error'` 时含 **`name`**、**`message`**、**`stack`**（由 `parseErrorStack(error, 0)` 得到的帧数组，平铺字段与 {@link StackFrame} 一致；**不**存原始 `error.stack` 字符串）；另有 **`entries`** 承载其它自有枚举属性。
+ */
 export type ArgSnapshot = Record<string, unknown> | ArgSnapshotTruncated
 
 /**
  * 结构化日志片段（与 `LogEntry#toSegments()` 一致，可 JSON 传输）
  */
-/** `SegmentCollection` 的稳定形状（避免 `shared` ↔ 实现模块循环引用） */
-export interface SegmentCollectionView {
-	toSegmentsArray(): LogSegment[]
-	readonly length: number
-	toPlainText(options?: { engine?: unknown }): string
-	toHtml(options?: { htmlOptions?: unknown; engine?: unknown }): string
-	toAnsiText(options?: {
-		ansiOptions?: { osc8Links?: boolean; colorize?: boolean }
-		engine?: unknown
-	}): string
-	[Symbol.iterator](): IterableIterator<LogSegment>
-}
+/** `dir` / `console.dir` 的 `value` 段可选：`depth`、`colors` 等（与参数快照同源序列化） */
+export type DirOptionsSnapshot = ArgSnapshot
 
+/**
+ * 结构化日志片段：仅 `text` / `css` / `value` / `trace` 四类（可 JSON 传输）。
+ * - `text`：原始终端字节串（可含 CSI/OSC8）；换行用 `\n` 字符表达。
+ * - `css`：`%c` 样式串；`renderAnsi` 映射颜色（真彩色）、粗/斜/划/删、`opacity`/`lighter`/半透明色等（含 SGR dim）；HTML 侧用 `span` 作用域。
+ * - `value`：`ArgSnapshot` 树，渲染时格式化为 plain/ANSI/HTML（不再预烘焙 `ansiText`）。
+ * - `trace`：栈帧列表的快照树（与 {@link StackFrame} 序列化形状一致）。
+ */
 export type LogSegment =
-	| { kind: 'text'; text: string; css?: string }
-	| { kind: 'value'; snapshot: ArgSnapshot; css?: string; ansiText?: string }
-	| { kind: 'values'; items: Array<{ kind: 'value'; snapshot: ArgSnapshot; ansiText?: string }> }
-	| { kind: 'ansi'; text: string }
-	| { kind: 'link'; href: string; label: string }
-	| { kind: 'dir'; snapshot: ArgSnapshot; dirOptions?: ArgSnapshot }
-	| { kind: 'traceStack'; frames: StackFrame[] }
+	| { kind: 'text'; text: string }
+	| { kind: 'css'; css: string }
+	| { kind: 'value'; snapshot: ArgSnapshot; dirOptions?: DirOptionsSnapshot }
+	| { kind: 'trace'; snapshot: ArgSnapshot }
 
 /** 单条日志条目接口 */
 export interface LogEntry {
+	/** 进程内稳定递增 id（含流式条目） */
+	readonly id: number
 	/** 经 `methodNameToLevel` 归一化后的语义级别 */
 	level: CapturedLogLevel
 	/** 对应的 console / 流方法名（如 `log`、`trace`、Node 下 `stdout`） */
@@ -99,17 +89,15 @@ export interface LogEntry {
 	timestamp: number
 	/** 第一条带路径的栈帧，便于展示来源 */
 	readonly primaryCallsite: StackFrame | null
-	/** 剥除 ANSI/OSC 后的纯文本（展示、过滤、搜索均可用） */
-	readonly plainText: string
-	/** Node `stdout`/`stderr`：按 `\\n` 拆分的逻辑行 */
-	readonly lines?: string[]
-	/** 将日志条目转换为纯文本字符串 */
+	/** 宿主是否允许 ANSI（影响 `value`/`trace` 等着色与 OSC8） */
+	supportsAnsi: boolean
+	/** Node `stdout`/`stderr`：合并后的原始流文本；非流条目无此字段 */
+	streamText?: string
+	/** 终端 ANSI 串（流条目为原始合并文本） */
 	toString(): string
-	/** 将 `toSegments()` 输出为终端用串（OSC 8 可选） */
-	toAnsiText(options?: { osc8Links?: boolean; colorize?: boolean }): string
-	/** 结构化片段的不可变集合视图（见 {@link SegmentCollection}） */
-	readonly segmentCollection: SegmentCollectionView
-	/** 将日志条目转为 HTML（剥 OSC 窗口标题，OSC8→`a[href]`，与 `plainText` 对应） */
+	/** 无 ANSI 的纯文本 */
+	toPlainText(): string
+	/** 由 `toSegments` 渲染的 HTML */
 	toHtml(): string
 	/** 参数快照，深度默认与内置序列化一致 */
 	serializeArgs(maxDepth?: number): ArgSnapshot[]
@@ -120,32 +108,6 @@ export interface LogEntry {
 /** 按宿主环境细分的日志条目（覆盖 `level` 联合） */
 export type BaseLogEntry<L extends string = string> = Omit<LogEntry, 'level'> & {
 	level: L
-}
-
-/**
- * console.trace() 产生的特化日志条目。
- * toString/toHtml 会在参数内容后追加格式化的调用栈文本。
- * supportsAnsi 来自创建该条目的宿主控制台，决定 toString() 是否嵌入 OSC 8 超链接序列。
- */
-export interface TraceLogEntry extends Omit<LogEntry, 'level' | 'method'> {
-	level: 'debug'
-	method: 'trace'
-	/** 宿主控制台是否支持 ANSI 超链接序列（由创建时的 VirtualConsoleOptions.supportsAnsi 决定） */
-	supportsAnsi: boolean
-}
-
-/** `console.dir()` 产生的特化日志条目（语义级别为 `log`，方法名为 `dir`） */
-export interface DirLogEntry extends Omit<LogEntry, 'level' | 'method'> {
-	level: 'log'
-	method: 'dir'
-}
-
-/** `stdout`/`stderr` 捕获条目：合并后的原始文本（不经 printf 解析） */
-export interface StreamLogEntry extends Omit<LogEntry, 'level' | 'method'> {
-	level: 'log' | 'error'
-	method: 'stdout' | 'stderr'
-	/** 合并后的流文本 */
-	streamText: string
 }
 
 /**
@@ -180,3 +142,58 @@ export interface GlobalConsoleRouting<VC = unknown> {
 	/** 在以指定实例为活动控制台的新上下文中执行回调，返回回调结果的 Promise */
 	runWithActiveConsole: <T>(value: VC, fn: () => T | Promise<T>) => Promise<T>
 }
+
+/** 下列声明的实现分布在 Node / 浏览器入口 `.mjs`，此处集中声明以供平台 `.d.mts` 重导出。 */
+
+export declare const DEFAULT_SNAPSHOT_DEPTH: number
+
+export declare function serializeArgSnapshot(
+	value: unknown,
+	options?: { maxDepth?: number; expansionScope?: object | null }
+): ArgSnapshot
+
+export declare function createExpansionScope(entry: object): {
+	allocRef(target: object): string
+}
+
+export declare function expandSnapshotRef(
+	ref: string,
+	maxDepth?: number
+): { ok: true; snapshot: ArgSnapshot } | { ok: false; error: string }
+
+export declare function getLogEntryArgs(entry: object): unknown[]
+
+export declare function getStackInfo(leadingLinesToSkip?: number): StackFrame[]
+export declare function parseErrorStack(error: unknown, skipNum?: number): StackFrame[]
+export declare function trimLeadingRuntimeInternalFrames(frames: StackFrame[]): StackFrame[]
+
+export declare function newLogEntry(options: object): LogEntry
+
+export declare function renderPlain(segments: LogSegment[]): string
+export declare function renderAnsi(
+	segments: LogSegment[],
+	options?: { colorize?: boolean; omitPrintfCss?: boolean }
+): string
+export declare function renderHtml(segments: LogSegment[], options?: Record<string, unknown>): string
+
+export declare function stripTerminalDecorations(text: string): string
+export declare function stripOscTitleSequences(text: string): string
+export declare function escapeHtml(str: string): string
+export declare function collectPrintfFormatParts(
+	format: string,
+	args: unknown[],
+	startArgIndex?: number
+): {
+	parts: Array<
+		| { kind: 'literal'; text: string }
+		| { kind: 'arg'; spec: string; value: unknown }
+		| { kind: 'missingSpec'; spec: string }
+	>
+	nextArgIndex: number
+}
+
+export declare function buildArgsSegments(
+	args: unknown[],
+	expansionScope?: object | null,
+	snapshotDepth?: number
+): LogSegment[]

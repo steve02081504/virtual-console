@@ -13,26 +13,20 @@ export declare function makeClearRequest(): { type: string }
 
 export declare function makeClearedPayload(): { type: string }
 
-export declare function snapshotMessageMetadata(message: Record<string, unknown>): Record<string, unknown>
-
 export declare function dispatchLogWireMessage(
 	parsed: unknown,
 	handlers?: {
-		onSnapshot?: (payload: {
-			entries: unknown
-			metadata: Record<string, unknown>
-			raw: object
-		}) => void
-		onAppend?: (payload: { entry: unknown; raw: object }) => void
+		onSnapshot?: (entries: unknown[]) => void | Promise<void>
+		onAppend?: (entry: unknown) => void | Promise<void>
 		onExpandResult?: (payload: {
 			ref: string
 			ok: boolean
 			snapshot?: unknown
 			error?: string
 			raw: object
-		}) => void
-		onClear?: (payload: { raw: object }) => void
-		onUnknown?: (raw: object) => void
-		extensionHandlers?: Record<string, (raw: object) => void>
+		}) => void | Promise<void>
+		onClear?: () => void | Promise<void>
+		onUnknown?: (raw: object) => void | Promise<void>
+		extensionHandlers?: Record<string, (raw: object) => void | Promise<void>>
 	}
-): boolean
+): Promise<boolean>

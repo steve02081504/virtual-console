@@ -3,91 +3,51 @@
  */
 import { expandSnapshotRef } from '../core/snapshot.mjs'
 
-import { logWirePayloadTypes, makeClearedPayload } from './protocol.mjs'
+import { logWirePayloadTypes } from './protocol.mjs'
 import { serializeLogEntryForWire } from './serialize-log-entry.mjs'
 
 /** WebSocket.OPEN（浏览器与 `ws` 包一致） */
 const WS_OPEN = 1
 
 /**
- * 构造单条追加下行消息（`vc_log_append`）。
- * @param {import('../core/entries.mjs').LogEntry} entry - 刚写入缓冲区的日志条目。
- * @param {number} index - 当前条目在缓冲中的下标（通常 `outputEntries.length - 1`）。
- * @returns {{ type: string, entry: ReturnType<typeof serializeLogEntryForWire> }} 可 `JSON.stringify` 后广播的对象。
+ * @param {Set<{ readyState: number, send: (data: string) => void }>} clients - 当前客户端集合。
+ * @param {string} text - 已 `JSON.stringify` 的帧正文。
+ * @returns {void}
  */
-export function makeAppendPayload(entry, index) {
-	return { type: logWirePayloadTypes.APPEND, entry: serializeLogEntryForWire(entry, index) }
-}
-
-/**
- * 构造初始全量快照下行消息（`vc_log_snapshot`）。
- * @param {import('../core/entries.mjs').LogEntry[]} entries - 当前缓冲中的全部条目。
- * @param {Record<string, unknown>} [extra] - 与 `type`/`entries` 并列的扩展字段（如 `canOpenEditor`）。
- * @returns {object} 可 `JSON.stringify` 的首包负载。
- */
-export function makeSnapshotPayload(entries, extra = {}) {
-	return {
-		type: logWirePayloadTypes.SNAPSHOT,
-		entries: entries.map((entry, index) => serializeLogEntryForWire(entry, index)),
-		...extra,
-	}
-}
-
-/**
- * 展开成功的服务端应答载荷。
- * @param {string} ref - 与请求中相同的展开标识。
- * @param {import('../shared.d.mts').ArgSnapshot} snapshot - 深层序列化后的参数快照。
- * @returns {{ type: string, ref: string, ok: true, snapshot: import('../shared.d.mts').ArgSnapshot }} `ok: true` 分支。
- */
-export function makeExpandResponse(ref, snapshot) {
-	return { type: logWirePayloadTypes.EXPAND_RESULT, ref, ok: true, snapshot }
-}
-
-/**
- * 展开失败的服务端应答载荷。
- * @param {string} ref - 与请求中相同的展开标识。
- * @param {string} error - 简短错误说明（将字符串化）。
- * @returns {{ type: string, ref: string, ok: false, error: string }} `ok: false` 分支。
- */
-export function makeExpandErrorResponse(ref, error) {
-	return { type: logWirePayloadTypes.EXPAND_RESULT, ref, ok: false, error: String(error) }
-}
-
-/**
- * 从客户端上行文本解析展开请求（仅校验 `type` 与 `ref`）。
- * @param {unknown} parsed - `JSON.parse` 结果。
- * @returns {{ ref: string } | null} 合法请求返回 ref；否则 `null`。
- */
-export function parseClientExpandMessage(parsed) {
-	const message = /** @type {Record<string, unknown>} */ parsed
-	if (message.type !== logWirePayloadTypes.EXPAND_REQUEST) return null
-	return { ref: message.ref }
-}
-
-/**
- * 从客户端上行文本解析清空请求（仅校验 `type`）。
- * @param {unknown} parsed - `JSON.parse` 结果。
- * @returns {{}|null} 合法请求返回空对象；否则 `null`。
- */
-export function parseClientClearMessage(parsed) {
-	const message = /** @type {Record<string, unknown>} */ parsed
-	if (message.type !== logWirePayloadTypes.CLEAR_REQUEST) return null
-	return {}
+function broadcastToOpen(clients, text) {
+	for (const ws of clients)
+		if (ws.readyState === WS_OPEN)
+			ws.send(text)
 }
 
 /**
  * 处理客户端发来的展开请求，返回应 `ws.send(JSON.stringify(...))` 的应答对象。
  * @param {unknown} parsed - 客户端 JSON 负载。
  * @param {{ expandSnapshotRef?: typeof expandSnapshotRef }} [handlers] - 可注入自定义展开实现（默认 `expandSnapshotRef`）。
- * @returns {ReturnType<typeof makeExpandResponse> | ReturnType<typeof makeExpandErrorResponse> | null} 非展开消息返回 `null`。
+ * @returns {{ type: string, ref: string, ok: boolean, snapshot?: import('../shared.d.mts').ArgSnapshot, error?: string } | null} 非展开消息返回 `null`。
  */
 export function handleClientWireMessage(parsed, handlers = {}) {
 	const expandFn = handlers.expandSnapshotRef ?? expandSnapshotRef
-	const req = parseClientExpandMessage(parsed)
-	if (!req) return null
-	const expandResult = expandFn(req.ref)
-	if (expandResult.ok) return makeExpandResponse(req.ref, /** @type {import('../shared.d.mts').ArgSnapshot} */ expandResult.snapshot)
-	return makeExpandErrorResponse(req.ref, expandResult.error || 'expand_failed')
+	const message = /** @type {Record<string, unknown>} */ parsed
+	if (message.type !== logWirePayloadTypes.EXPAND_REQUEST)
+		return null
+	const { ref } = message
+	if (typeof ref !== 'string')
+		return null
+	const expandResult = expandFn(ref)
+	if (expandResult.ok)
+		return {
+			type: logWirePayloadTypes.EXPAND_RESULT,
+			ref,
+			ok: true,
+			snapshot: /** @type {import('../shared.d.mts').ArgSnapshot} */ expandResult.snapshot,
+		}
+	return {
+		type: logWirePayloadTypes.EXPAND_RESULT,
+		ref,
+		ok: false,
+		error: String(expandResult.error || 'expand_failed'),
+	}
 }
 
 /**
@@ -100,32 +60,34 @@ export function handleClientWireMessage(parsed, handlers = {}) {
  *   addClearListener: (fn: () => void) => void
  *   clear: () => void
  * }} virtualConsole - 带缓冲与监听器的宿主控制台（通常为 `VirtualConsole`）。
- * @param {{ getMetadata?: (req: unknown) => Record<string, unknown> }} [options] - 可选：随快照下发的业务元数据（如权限开关）。
  * @returns {(ws: { readyState: number, send: (data: string) => void, on: (ev: string, fn: (...args: unknown[]) => void) => void, close?: (code?: number, reason?: string) => void }, req?: unknown) => void) & {
  *   broadcastJson: (payload: object) => void,
  *   forEachClient: (fn: (ws: unknown) => void) => void,
  *   closeAllWithFinalJson: (payload: object) => Promise<void>,
  * }} 供挂载的 `(ws, req) => void`，并附带 `broadcastJson` / `forEachClient` / `closeAllWithFinalJson` 控制面。
  */
-export function createLogWireWebSocketHandler(virtualConsole, {
-	getMetadata = () => ({}),
-} = {}) {
+export function createLogWireWebSocketHandler(virtualConsole) {
 	const clients = new Set()
 	virtualConsole.addLogEntryListener((entry) => {
-		const payload = JSON.stringify(makeAppendPayload(entry, virtualConsole.outputEntries.length - 1))
-		for (const ws of clients)
-			if (ws.readyState === WS_OPEN)
-				ws.send(payload)
+		const payload = JSON.stringify({
+			type: logWirePayloadTypes.APPEND,
+			entry: serializeLogEntryForWire(entry),
+		})
+		broadcastToOpen(clients, payload)
 	})
 	virtualConsole.addClearListener(() => {
-		const payload = JSON.stringify(makeClearedPayload())
-		for (const ws of clients)
-			if (ws.readyState === WS_OPEN)
-				ws.send(payload)
+		broadcastToOpen(clients, JSON.stringify({ type: logWirePayloadTypes.CLEARED }))
 	})
+	/**
+	 * @param {{ readyState: number, send: (data: string) => void, on: (ev: string, fn: (...args: unknown[]) => void) => void, close?: (code?: number, reason?: string) => void }} ws - WebSocket 兼容连接。
+	 * @param {unknown} [req] - 升级请求（若有）。
+	 */
 	const handler = (ws, req) => {
 		clients.add(ws)
-		ws.send(JSON.stringify(makeSnapshotPayload(virtualConsole.outputEntries, getMetadata(req))))
+		ws.send(JSON.stringify({
+			type: logWirePayloadTypes.SNAPSHOT,
+			entries: virtualConsole.outputEntries.map(entry => serializeLogEntryForWire(entry)),
+		}))
 		ws.on('message', (raw) => {
 			let parsed
 			try {
@@ -137,8 +99,14 @@ export function createLogWireWebSocketHandler(virtualConsole, {
 			const wireReply = handleClientWireMessage(parsed)
 			if (wireReply)
 				ws.send(JSON.stringify(wireReply))
-			else if (parseClientClearMessage(parsed))
-				virtualConsole.clear()
+			else {
+				const message = /** @type {Record<string, unknown>} */ parsed
+				if (message.type === logWirePayloadTypes.CLEAR_REQUEST)
+					virtualConsole.clear()
+			}
+		})
+		ws.on('error', () => {
+			clients.delete(ws)
 		})
 		ws.on('close', () => {
 			clients.delete(ws)
@@ -183,7 +151,7 @@ export function createLogWireWebSocketHandler(virtualConsole, {
 		const text = JSON.stringify(payload)
 		/** @type {Promise<void>[]} */
 		const closeWaits = []
-		for (const ws of [...clients]) {
+		for (const ws of [...clients])
 			try {
 				if (ws.readyState === WS_OPEN)
 					ws.send(text)
@@ -199,7 +167,7 @@ export function createLogWireWebSocketHandler(virtualConsole, {
 			catch {
 				/* ignore */
 			}
-		}
+
 		await Promise.allSettled(closeWaits)
 	}
 

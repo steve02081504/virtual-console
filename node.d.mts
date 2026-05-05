@@ -2,30 +2,16 @@ import type { AsyncLocalStorage } from 'node:async_hooks'
 import type { Console } from 'node:console'
 import type { Writable } from 'node:stream'
 
-import type {
-	NodeLogEntryLevel,
-	BaseVirtualConsoleOptions,
-	LogEntry as BaseLogEntry,
-	WriteAsLevelArg,
-} from './src/shared.d.mts'
+import type { BaseVirtualConsoleOptions, LogEntry, WriteAsLevelArg } from './src/shared.d.mts'
 
 export type {
-	NodeLogEntryLevel,
-	BrowserLogEntryLevel,
-	CommonLogEntryLevel,
 	CapturedLogLevel,
 	WriteAsLevelArg,
 	StackFrame,
-	TraceLogEntry,
-	DirLogEntry,
-	StreamLogEntry,
 	ArgSnapshot,
 	LogSegment,
 	GlobalConsoleRouting,
 } from './src/shared.d.mts'
-
-/** Node.js 环境下的单条日志条目（级别包含 `stdout` / `stderr`） */
-export type LogEntry = BaseLogEntry<NodeLogEntryLevel>
 
 /**
  * 虚拟可写流，代理真实的 `stdout` / `stderr`。
@@ -44,7 +30,7 @@ export interface VirtualStream extends Writable {
 /**
  * Node.js 环境虚拟控制台配置选项
  */
-export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<VirtualConsole, NodeLogEntryLevel> {
+export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<VirtualConsole, import('./src/shared.d.mts').CapturedLogLevel> {
 	/**
 	 * 为 `true` 时启用 ANSI：`freshLine` 在 TTY 上可覆盖同行、`trace` 栈文本可含 OSC 8 等。
 	 * 未指定时由 `supports-ansi` 检测；若 `baseConsole` 为 `VirtualConsole` 则继承其 `options.supportsAnsi`。
@@ -57,9 +43,9 @@ export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<Virtual
  * 基于 `AsyncLocalStorage` 实现真正的异步上下文隔离：并发任务各自拥有独立的日志缓冲区。
  */
 export class VirtualConsole extends Console {
-	/** 所有捕获输出拼接成的纯文本字符串（条目间以换行分隔） */
+	/** 所有捕获输出拼接成的纯文本字符串 */
 	readonly outputs: string
-	/** 所有捕获输出拼接成的 HTML 字符串（可直接渲染） */
+	/** 所有捕获输出拼接成的 HTML 字符串 */
 	readonly outputsHtml: string
 	/** 结构化日志条目数组 */
 	outputEntries: LogEntry[]
@@ -168,58 +154,7 @@ export function getGlobalConsoleResolver(): GlobalConsoleRouting<VirtualConsole>
 /** 全局 `console` 代理对象——所有调用委托给当前异步上下文中激活的 `VirtualConsole` */
 export const console: VirtualConsole
 
-export declare const DEFAULT_SNAPSHOT_DEPTH: number
-
-export declare function serializeArgSnapshot(
-	value: unknown,
-	seen?: WeakSet<object>,
-	depth?: number,
-	maxDepth?: number,
-	expansionScope?: unknown
-): import('./src/shared.d.mts').ArgSnapshot
-
-export declare function createExpansionScope(entry: object): {
-	allocRef(target: object): string
-}
-
-export declare function expandSnapshotRef(
-	ref: string,
-	maxDepth?: number
-): { ok: true; snapshot: import('./src/shared.d.mts').ArgSnapshot } | { ok: false; error: string }
-
-export declare function unregisterExpandRefsForEntry(entry: object): void
-
-export declare function getLogEntryArgs(entry: object): unknown[]
-
-export declare function stripTerminalDecorations(text: string): string
-export declare function stripOscTitleSequences(text: string): string
-export declare function terminalChunkToHtml(chunk: string): string
-export declare function coerceString(arg: unknown): string
-export declare function escapeHtml(str: string): string
-export declare function collectPrintfFormatParts(
-	format: string,
-	args: unknown[],
-	startArgIndex?: number
-): {
-	parts: Array<
-		| { kind: 'literal'; text: string }
-		| { kind: 'arg'; spec: string; value: unknown }
-		| { kind: 'missingSpec'; spec: string }
-	>
-	nextArgIndex: number
-}
-
-export declare function formatArgs(
-	args: unknown[],
-	options?: { colorize?: boolean; depth?: number }
-): string
-
-export declare function buildArgsSegments(
-	args: unknown[],
-	expansionScope?: object | null,
-	snapshotDepth?: number
-): import('./src/shared.d.mts').LogSegment[]
-export declare function streamToSegments(text: string): import('./src/shared.d.mts').LogSegment[]
+export * from './src/shared.d.mts'
 
 declare global {
 	var console: VirtualConsole

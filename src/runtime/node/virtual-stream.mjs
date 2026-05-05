@@ -1,8 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { Writable } from 'node:stream'
 
-import { StreamLogEntry } from '../../core/entries.mjs'
-import { getLogEntryArgs } from '../../core/snapshot.mjs'
 import { getStackInfo, trimLeadingRuntimeInternalFrames } from '../../core/stack.mjs'
 
 /**
@@ -84,14 +82,7 @@ export class VirtualStream extends Writable {
 				if (context.options.recordOutput) try {
 					context.state.stackFrameSkipCount++
 					const text = chunk instanceof Buffer ? chunk.toString(encoding === 'buffer' ? 'utf8' : encoding) : String(chunk)
-					const lastEntry = context.state.outputEntries[context.state.outputEntries.length - 1]
-					if (lastEntry?.method === streamName && lastEntry instanceof StreamLogEntry) {
-						lastEntry.streamText += text
-						const arr = getLogEntryArgs(lastEntry)
-						if (arr.length) arr[0] = lastEntry.streamText
-					}
-					else
-						context.addEntry(streamName, [text], trimLeadingRuntimeInternalFrames(getStackInfo(context.state.stackFrameSkipCount)))
+					context.addEntry(streamName, [text], trimLeadingRuntimeInternalFrames(getStackInfo(context.state.stackFrameSkipCount + 1)))
 				} finally { context.state.stackFrameSkipCount-- }
 				if (context.options.realConsoleOutput)
 					targetStream.write(chunk, encoding, callback)

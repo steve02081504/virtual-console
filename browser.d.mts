@@ -1,31 +1,20 @@
-import type {
-	BrowserLogEntryLevel,
-	BaseVirtualConsoleOptions,
-	LogEntry as BaseLogEntry,
-	WriteAsLevelArg,
-} from './src/shared.d.mts'
+import type { BaseVirtualConsoleOptions, LogEntry, WriteAsLevelArg } from './src/shared.d.mts'
 
 export type {
-	BrowserLogEntryLevel,
-	CommonLogEntryLevel,
 	CapturedLogLevel,
 	WriteAsLevelArg,
 	StackFrame,
-	TraceLogEntry,
-	DirLogEntry,
-	StreamLogEntry,
 	ArgSnapshot,
 	LogSegment,
 	GlobalConsoleRouting,
 } from './src/shared.d.mts'
 
-/** 浏览器环境下的单条日志条目 */
-export type LogEntry = BaseLogEntry<BrowserLogEntryLevel>
+export type { LogEntry }
 
 /**
  * 浏览器环境虚拟控制台配置选项
  */
-export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<VirtualConsole, BrowserLogEntryLevel> {
+export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<VirtualConsole, import('./src/shared.d.mts').CapturedLogLevel> {
 	/**
 	 * 为 `true` 时，`trace` 栈文本使用 ANSI 相关格式化（`toString()` / `toHtml()`）。
 	 * 运行时默认 `!!globalThis.chrome`，可显式覆盖。
@@ -41,9 +30,9 @@ export interface VirtualConsoleOptions extends BaseVirtualConsoleOptions<Virtual
  * > 等独立触发的宏任务回调不会继承调用时的上下文。
  */
 export class VirtualConsole {
-	/** 所有捕获输出拼接成的纯文本字符串（条目间以换行分隔） */
+	/** 所有捕获输出拼接成的纯文本字符串 */
 	readonly outputs: string
-	/** 所有捕获输出拼接成的 HTML 字符串（可直接渲染） */
+	/** 所有捕获输出拼接成的 HTML 字符串 */
 	readonly outputsHtml: string
 	/** 结构化日志条目数组 */
 	outputEntries: LogEntry[]
@@ -141,58 +130,7 @@ export function getGlobalConsoleResolver(): GlobalConsoleRouting<VirtualConsole>
 /** 全局 `console` 代理对象——所有调用委托给当前上下文中激活的 `VirtualConsole` */
 export const console: VirtualConsole
 
-export declare const DEFAULT_SNAPSHOT_DEPTH: number
-
-export declare function serializeArgSnapshot(
-	value: unknown,
-	seen?: WeakSet<object>,
-	depth?: number,
-	maxDepth?: number,
-	expansionScope?: unknown
-): import('./src/shared.d.mts').ArgSnapshot
-
-export declare function createExpansionScope(entry: object): {
-	allocRef(target: object): string
-}
-
-export declare function expandSnapshotRef(
-	ref: string,
-	maxDepth?: number
-): { ok: true; snapshot: import('./src/shared.d.mts').ArgSnapshot } | { ok: false; error: string }
-
-export declare function unregisterExpandRefsForEntry(entry: object): void
-
-export declare function getLogEntryArgs(entry: object): unknown[]
-
-export declare function stripTerminalDecorations(text: string): string
-export declare function stripOscTitleSequences(text: string): string
-export declare function terminalChunkToHtml(chunk: string): string
-export declare function coerceString(arg: unknown): string
-export declare function escapeHtml(str: string): string
-export declare function collectPrintfFormatParts(
-	format: string,
-	args: unknown[],
-	startArgIndex?: number
-): {
-	parts: Array<
-		| { kind: 'literal'; text: string }
-		| { kind: 'arg'; spec: string; value: unknown }
-		| { kind: 'missingSpec'; spec: string }
-	>
-	nextArgIndex: number
-}
-
-export declare function formatArgs(
-	args: unknown[],
-	options?: { colorize?: boolean; depth?: number }
-): string
-
-export declare function buildArgsSegments(
-	args: unknown[],
-	expansionScope?: object | null,
-	snapshotDepth?: number
-): import('./src/shared.d.mts').LogSegment[]
-export declare function streamToSegments(text: string): import('./src/shared.d.mts').LogSegment[]
+export * from './src/shared.d.mts'
 
 declare global {
 	var console: VirtualConsole

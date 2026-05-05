@@ -1,4 +1,12 @@
-import { SegmentCollection } from '../format/segment_collection.mjs'
+import supportsAnsiDefault from 'supports-ansi'
+
+import { renderAnsi, renderHtml, renderPlain } from '../format/render.mjs'
+
+import {
+	applyExpandedSnapshotsInSegments,
+	collectTruncatedRefsFromSegments,
+	cloneSegments,
+} from './expand-wire-segments.mjs'
 
 /**
  * @typedef {object} WireLogEntryPayload
@@ -6,100 +14,169 @@ import { SegmentCollection } from '../format/segment_collection.mjs'
  * @property {string} [level]
  * @property {string} [method]
  * @property {number} [timestamp]
- * @property {string} [plainText]
  * @property {import('../shared.d.mts').LogSegment[]} [segments]
  * @property {unknown} [callsite]
  */
 
 /**
- * 线路下行单条日志载荷的面向对象包装（与进程内 {@link LogEntry} 镜像字段，无原始 `args`）。
+ * @typedef {object} WireContext
+ * @property {(ref: string) => Promise<unknown>} requestExpand - 通过线路请求 `vc_expand_request` 并兑现快照。
+ * @property {boolean} [supportsAnsi] - 未指定时使用全局 `supports-ansi` 检测结果。
+ */
+
+/**
+ * 线路下行单条日志：`render*` 异步仅用于 wire；展开后与进程内 {@link LogEntry} 的 `toString` / `toPlainText` / `toHtml` 同管线。
  */
 export class WireLogEntry {
 	/** @type {Record<string, unknown>} */
 	#payload
 
+	/** @type {(ref: string) => Promise<unknown>} */
+	#requestExpand
+
+	/** @type {boolean} */
+	#supportsAnsi
+
+	/** @type {Promise<import('../shared.d.mts').LogSegment[]> | null} */
+	#expandPromise = null
+
+	/** @type {import('../shared.d.mts').LogSegment[] | null} */
+	#expandedSegments = null
+
 	/**
-	 * @param {WireLogEntryPayload | Record<string, unknown>} payload - 线路或裸对象；会浅拷贝存为内部载荷。
+	 * @param {WireLogEntryPayload | Record<string, unknown>} payload - 线路 JSON 单条载荷。
+	 * @param {WireContext} wire - 展开与 ANSI 开关。
 	 */
-	constructor(payload) {
+	constructor(payload, wire) {
 		this.#payload = { ...payload }
+		this.#requestExpand = wire.requestExpand
+		this.#supportsAnsi = wire.supportsAnsi ?? supportsAnsiDefault
 	}
 
 	/** @returns {number | undefined} 稳定条目 id（若对端提供）。 */
 	get id() {
-		return /** @type {number | undefined} */ this.#payload.id
+		return this.#payload.id
 	}
 
-	/** @returns {string | undefined} 语义级别（如 log/warn/error）。 */
+	/** @returns {string | undefined} 语义级别。 */
 	get level() {
-		return /** @type {string | undefined} */ this.#payload.level
+		return this.#payload.level
 	}
 
-	/** @returns {string | undefined} 原始 console 方法名（如 log、trace）。 */
+	/** @returns {string | undefined} 原始方法名。 */
 	get method() {
-		return /** @type {string | undefined} */ this.#payload.method
+		return this.#payload.method
 	}
 
 	/** @returns {number | undefined} 毫秒时间戳。 */
 	get timestamp() {
-		return /** @type {number | undefined} */ this.#payload.timestamp
+		return this.#payload.timestamp
 	}
 
 	/**
-	 * 结构化片段集合视图。
-	 * @returns {SegmentCollection} 基于载荷 `segments` 字段（缺省为空数组）。
+	 * 当前（已展开则已展开）片段数组（只读视图：与内部存储同一引用，勿原地改）。
+	 * @returns {import('../shared.d.mts').LogSegment[]} 用于渲染与展示的片段列表。
 	 */
-	get segmentCollection() {
-		return SegmentCollection.fromWireSegmentsField(this.#payload.segments)
+	get segments() {
+		return this.#expandedSegments ?? this.#payload.segments ?? []
 	}
 
 	/**
-	 * 与 `plainText` 字段对齐的可搜索文本（无字段时由片段推导）。
-	 * @returns {string} 纯文本检索串。
+	 * 等待全部 `truncated.ref` 展开后返回终端 ANSI 串；无片段时返回空串。
+	 * @returns {Promise<string>} 异步解析得到的 ANSI 正文。
 	 */
-	toPlainText() {
-		return this.#payload.plainText || this.segmentCollection.toPlainText({})
+	renderString() {
+		return this.#renderString()
 	}
 
 	/**
-	 * 默认字符串化：同 {@link WireLogEntry#toPlainText}。
-	 * @returns {string} 与 {@link WireLogEntry#toPlainText} 相同。
+	 * 展开后返回纯文本（剥除 ANSI/OSC）；无片段时返回空串。
+	 * @returns {Promise<string>} 异步解析得到的纯文本。
 	 */
-	toString() {
-		return this.toPlainText()
+	renderPlain() {
+		return this.#renderPlain()
 	}
 
 	/**
-	 * @param {{ htmlOptions?: import('../format/render_engine.mjs').RenderHtmlOptions }} [options] - trace 栈与链接样式。
-	 * @returns {string} HTML 片段串。
+	 * 展开后返回 HTML。
+	 * @returns {Promise<string>} 异步解析得到的 HTML 字符串。
 	 */
-	toHtml({ htmlOptions = {} } = {}) {
-		return this.segmentCollection.toHtml({ htmlOptions })
+	renderHtml() {
+		return this.#renderHtml()
+	}
+
+	/** @returns {Promise<string>} 展开后 ANSI 串或空串。 */
+	async #renderString() {
+		const segments = await this.#ensureExpanded()
+		if (segments.length > 0)
+			return renderAnsi(segments, { colorize: this.#supportsAnsi })
+		return ''
+	}
+
+	/** @returns {Promise<string>} 展开后纯文本或空串。 */
+	async #renderPlain() {
+		const segments = await this.#ensureExpanded()
+		if (segments.length > 0)
+			return renderPlain(segments)
+		return ''
+	}
+
+	/** @returns {Promise<string>} 展开后 HTML 或空串。 */
+	async #renderHtml() {
+		const segments = await this.#ensureExpanded()
+		if (segments.length > 0)
+			return renderHtml(segments, { supportsAnsi: this.#supportsAnsi })
+		return ''
 	}
 
 	/**
-	 * @param {{ ansiOptions?: import('../format/render_engine.mjs').RenderAnsiOptions }} [options] - 终端 ANSI/OSC 8 选项。
-	 * @returns {string} 终端可打印串。
+	 * @returns {Promise<import('../shared.d.mts').LogSegment[]>} 展开后的片段副本。
 	 */
-	toAnsiText({ ansiOptions = {} } = {}) {
-		return this.segmentCollection.toAnsiText({ ansiOptions })
+	async #ensureExpanded() {
+		if (this.#expandedSegments)
+			return this.#expandedSegments
+		if (this.#expandPromise)
+			return this.#expandPromise
+		this.#expandPromise = this.#expandAllSegments().then((segs) => {
+			this.#expandedSegments = segs
+			this.#expandPromise = null
+			return segs
+		})
+		return this.#expandPromise
 	}
 
 	/**
-	 * 浅拷贝原始载荷（用于序列化或透传）。
-	 * @returns {Record<string, unknown>} 内部载荷的浅克隆。
+	 * @returns {Promise<import('../shared.d.mts').LogSegment[]>} 克隆并替换截断节点后的片段。
+	 */
+	async #expandAllSegments() {
+		const cloned = cloneSegments(this.#payload.segments ?? [])
+		const refs = collectTruncatedRefsFromSegments(cloned)
+		if (refs.size === 0)
+			return cloned
+
+		const refToSnapshot = new Map()
+		await Promise.all([...refs].map(async (ref) => {
+			const snap = await this.#requestExpand(ref)
+			refToSnapshot.set(ref, snap)
+		}))
+		applyExpandedSnapshotsInSegments(cloned, refToSnapshot)
+		return cloned
+	}
+
+	/**
+	 * 浅拷贝载荷（不含展开缓存）。
+	 * @returns {Record<string, unknown>} JSON 友好对象。
 	 */
 	toJSON() {
 		return { ...this.#payload }
 	}
 
 	/**
-	 * 从任意对象构造；非法时抛出。
-	 * @param {unknown} value - 线路 payload 或已有 `WireLogEntry`。
-	 * @returns {WireLogEntry} 规范包装实例。
+	 * @param {unknown} value - 线路载荷或已有实例。
+	 * @param {WireContext} wire - 必填连接上下文。
+	 * @returns {WireLogEntry} 包装实例。
 	 */
-	static from(value) {
-		if (value instanceof WireLogEntry) return value
-		return new WireLogEntry(/** @type {Record<string, unknown>} */ value)
+	static from(value, wire) {
+		return value instanceof WireLogEntry ? value : new WireLogEntry(value, wire)
 	}
 }

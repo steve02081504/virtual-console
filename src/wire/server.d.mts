@@ -5,7 +5,7 @@ export declare function makeAppendPayload(entry: unknown, index: number): {
 	entry: Record<string, unknown>
 }
 
-export declare function makeSnapshotPayload(entries: unknown[], extra?: Record<string, unknown>): Record<string, unknown>
+export declare function makeSnapshotPayload(entries: unknown[]): Record<string, unknown>
 
 export declare function makeExpandResponse(ref: string, snapshot: ArgSnapshot): Record<string, unknown>
 
@@ -46,6 +46,5 @@ export declare function createLogWireWebSocketHandler(
 		addLogEntryListener: (fn: (entry: unknown) => void) => void
 		addClearListener: (fn: () => void) => void
 		clear: () => void
-	},
-	options?: { getMetadata?: (req: unknown) => Record<string, unknown> }
+	}
 ): LogWireWebSocketHandler

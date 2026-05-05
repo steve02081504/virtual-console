@@ -1,11 +1,6 @@
-import { circularToString, stripTerminalDecorations } from '../format/ansi.mjs'
-import { traceStackFrameOsc8Ansi } from '../format/osc8_ansi.mjs'
-import { SegmentCollection } from '../format/segment_collection.mjs'
-import {
-	buildArgsSegments,
-	formatArgs,
-	streamToSegments,
-} from '../format/segments.mjs'
+import { stripOscTitleSequences } from '../format/ansi.mjs'
+import { renderAnsi, renderHtml as renderHtmlFromSegments, renderPlain as renderPlainFromSegments } from '../format/render.mjs'
+import { buildArgsSegments } from '../format/segments.mjs'
 
 import {
 	DEFAULT_SNAPSHOT_DEPTH,
@@ -15,6 +10,8 @@ import {
 	setLogEntryArgs,
 } from './snapshot.mjs'
 import { getStackInfo } from './stack.mjs'
+
+let nextLogEntryId = 0
 
 /**
  * 将 console 方法名转换为语义级别。
@@ -31,268 +28,116 @@ export function methodNameToLevel(methodName) {
 }
 
 /**
- * 单条日志条目，包含级别、方法名、参数、调用栈和时间戳。
- * 在 Node.js 和浏览器中均可使用。
- * 调用栈由 VirtualConsole#addEntry 负责采集，此处默认为空数组。
+ * 单条日志条目：`segments` 由 {@link LogEntry#toSegments} 按需构造；`stdout`/`stderr` 带 `streamText`。
  */
 export class LogEntry {
 	/**
-	 * 构造一条通用日志条目（级别由 `methodNameToLevel` 推导）。
 	 * @param {object} options - 日志条目选项。
 	 * @param {string} options.method - 日志方法名。
-	 * @param {any[]} options.args - 日志参数（WeakMap 存储）。
+	 * @param {any[]} options.args - 日志参数（WeakMap 存储）；流为 `[streamText]`。
 	 * @param {ReturnType<typeof getStackInfo>} options.stack - 调用栈。
 	 * @param {number} options.timestamp - 日志时间戳（默认 Date.now()）。
 	 * @param {boolean} options.supportsAnsi - 是否支持 ANSI 序列。
 	 */
 	constructor({ method, args = [], stack = [], timestamp = Date.now(), supportsAnsi = false }) {
+		this.id = ++nextLogEntryId
 		this.level = methodNameToLevel(method)
-		/**
-		 * 原始 console / 流方法名。
-		 * @type {string}
-		 */
 		this.method = method
-		setLogEntryArgs(this, args)
-		/**
-		 * 调用栈帧列表。
-		 * @type {ReturnType<typeof getStackInfo>}
-		 */
 		this.stack = stack
-		/**
-		 * Unix 毫秒时间戳。
-		 * @type {number}
-		 */
 		this.timestamp = timestamp
-		/**
-		 * 是否允许在 `toString`/`toSegments` 中输出 ANSI。
-		 * @type {boolean}
-		 */
 		this.supportsAnsi = supportsAnsi
+
+		if (method === 'stdout' || method === 'stderr') {
+			const text = String(args?.[0] ?? '')
+			this.streamText = text
+			setLogEntryArgs(this, [text])
+		}
+		else setLogEntryArgs(this, args)
 	}
 	/**
-	 * 第一条带 `filePath` 的栈帧，便于定位来源。
-	 * @returns {import('../shared.d.mts').StackFrame | null} 首个含 `filePath` 的帧；栈为空或无路径时为 `null`。
+	 * 第一条带源路径的栈帧，便于展示调用来源。
+	 * @returns {import('../shared.d.mts').StackFrame | null} 无路径帧时为 null。
 	 */
 	get primaryCallsite() {
-		return this.stack?.find(f => f?.filePath) ?? null
+		return this.stack?.find(frame => frame?.filePath) ?? null
 	}
 	/**
-	 * 剥除 ANSI/OSC 后的纯文本（可用于展示、过滤、搜索；基于 `toString()`）。
-	 * @returns {string} 无转义序列的可搜索文本。
-	 */
-	get plainText() { return stripTerminalDecorations(this.toString()) }
-	/**
-	 * Node.js `stdout`/`stderr` 捕获：按 `\\n` 拆分的逻辑行（不含完整终端仿真）。
-	 * 非流式条目为 `undefined`。
-	 * @returns {string[] | undefined} 流式条目返回各行字符串数组；其它级别为 `undefined`。
-	 */
-	get lines() {
-		if (this.method !== 'stdout' && this.method !== 'stderr') return undefined
-		const lineSource = 'streamText' in this ? this.streamText : getLogEntryArgs(this)[0]
-		return String(lineSource ?? '').split('\n')
-	}
-	/**
-	 * 与原生 `console.*` 对齐的纯文本表示（含 `%` 格式化与样式）。
-	 * @returns {string} 按 console 语义格式化后的纯文本日志内容。
-	 */
-	toString() { return formatArgs(getLogEntryArgs(this), { colorize: this.supportsAnsi }) }
-	/**
-	 * 将 `toSegments()` 转为终端友好串（`link` / `traceStack` 可选 OSC 8）。
-	 * @param {{ osc8Links?: boolean }} [options] - `osc8Links: false` 时链接与栈帧不输出 OSC 8 包裹。
-	 * @returns {string} 含 ANSI/OSC 的终端可打印串。
-	 */
-	toAnsiText(options) {
-		return this.segmentCollection.toAnsiText({
-			ansiOptions: {
-				...options,
-				colorize: options?.colorize !== undefined ? options.colorize : this.supportsAnsi,
-			},
-		})
-	}
-	/**
-	 * 当前条目的片段集合视图（与 {@link WireLogEntry#segmentCollection} 对称）。
-	 * @returns {SegmentCollection} 对 `toSegments()` 的不可变包装，便于统一走 `RenderEngine`。
-	 */
-	get segmentCollection() { return SegmentCollection.fromLogEntry(this) }
-	/**
-	 * 与 `toString()` 对应的 HTML（剥离 OSC 窗口标题，OSC8→`<a>`）。
-	 * @returns {string} 按 console 语义格式化后的 HTML（含剥标题 OSC、OSC8→链接；可直接插入 DOM）。
-	 */
-	toHtml() {
-		return this.segmentCollection.toHtml({
-			htmlOptions: { trimRenderedHtml: true, newlinesToBr: true },
-		})
-	}
-	/**
-	 * 将各参数序列化为可 JSON 传输的快照树。
-	 * @param {number} [maxDepth=DEFAULT_SNAPSHOT_DEPTH] - 参数快照最大深度（不产生可展开 ref）。
-	 * @returns {object[]} 各参数的 JSON 化快照对象数组。
-	 */
-	serializeArgs(maxDepth = DEFAULT_SNAPSHOT_DEPTH) {
-		return getLogEntryArgs(this).map(arg => serializeArgSnapshot(arg, new WeakSet(), 0, maxDepth, null))
-	}
-	/**
-	 * printf / 多参数展开后的结构化片段，供前端映射 DOM。
-	 * @returns {import('../shared.d.mts').LogSegment[]} 片段数组。
-	 */
-	toSegments() {
-		return buildArgsSegments(getLogEntryArgs(this), createExpansionScope(this), DEFAULT_SNAPSHOT_DEPTH)
-	}
-}
-
-/**
- * `process.stdout` / `process.stderr` 捕获：单参数为原始字节串，不按 printf 解析。
- */
-export class StreamLogEntry extends LogEntry {
-	/**
-	 * 构造 stdout/stderr 捕获条目；首参为合并后的原始流文本。
-	 * @param {object} options - 同 {@link LogEntry}，`args[0]` 为原始流字符串。
-	 */
-	constructor(options) {
-		const text = String(options.args?.[0] ?? '')
-		super({ ...options, args: [text] })
-		/**
-		 * 合并后的原始流字符串（不经 printf）。
-		 * @type {string}
-		 */
-		this.streamText = text
-	}
-	/**
-	 * 返回原始合并流文本。
-	 * @returns {string} 原始合并流文本，不经 printf 解析。
-	 */
-	toString() { return this.streamText }
-	/**
-	 * 将流文本转为 HTML（ANSI / 链接片段）。
-	 * @returns {string} 将流文本经 ANSI→HTML 转换后的片段拼接结果。
-	 */
-	toHtml() {
-		return this.segmentCollection.toHtml({ htmlOptions: { newlinesToBr: true } })
-	}
-	/**
-	 * 单参数（整段流文本）的快照数组。
-	 * @param {number} [maxDepth=DEFAULT_SNAPSHOT_DEPTH] - 单参数快照的最大递归深度。
-	 * @returns {object[]} 仅含一个元素：流字符串的快照树。
-	 */
-	serializeArgs(maxDepth = DEFAULT_SNAPSHOT_DEPTH) {
-		return [serializeArgSnapshot(this.streamText, new WeakSet(), 0, maxDepth, null)]
-	}
-	/**
-	 * 将流文本拆成 `ansi` / `link` 等片段。
-	 * @returns {import('../shared.d.mts').LogSegment[]} ANSI / OSC8 链接拆分后的片段列表。
-	 */
-	toSegments() { return streamToSegments(this.streamText) }
-}
-
-/**
- * console.dir() 产生的特化日志条目。
- * toString/toHtml 会在参数内容之后追加格式化后的对象内容。
- */
-export class DirLogEntry extends LogEntry {
-	/**
-	 * 构造 `console.dir` 专用条目。
-	 * @param {object} options - 构造选项，字段语义与 {@link LogEntry} 构造函数一致。
-	 * @param {string} options.method - 应为 `"dir"`。
-	 * @param {any[]} options.args - `console.dir` 的原始参数。
-	 * @param {ReturnType<typeof getStackInfo>} [options.stack] - 调用栈。
-	 * @param {number} [options.timestamp] - 记录时间戳。
-	 * @param {boolean} [options.supportsAnsi] - 是否启用 ANSI。
-	 */
-	constructor(options) {
-		super(options)
-	}
-	/**
-	 * `circularToString` 风格的对象检视文本。
-	 * @returns {string} `circularToString` 风格的对象检视文本（含颜色选项时可能含 ANSI）。
+	 * 终端 ANSI 串（`stdout`/`stderr` 为原始流文本）。
+	 * @returns {string} `renderAnsi(toSegments())` 或流文本。
 	 */
 	toString() {
-		const [subject, dirOptions] = getLogEntryArgs(this)
-		return circularToString(subject, {
-			depth: dirOptions?.depth ?? DEFAULT_SNAPSHOT_DEPTH,
-			colorize: dirOptions?.colors ?? this.supportsAnsi
-		})
+		if (this.method === 'stdout' || this.method === 'stderr')
+			return this.streamText ?? ''
+		return renderAnsi(this.toSegments(), { colorize: this.supportsAnsi })
 	}
 	/**
-	 * 单段 `kind: 'dir'` 片段，含对象快照与可选 `dirOptions`。
-	 * @returns {import('../shared.d.mts').LogSegment[]} 片段数组。
+	 * 剥除转义与样式后的纯文本。
+	 * @returns {string} `renderPlain(toSegments())`。
+	 */
+	toPlainText() {
+		return renderPlainFromSegments(this.toSegments())
+	}
+	/**
+	 * 与 `toSegments` 同管线下的 HTML。
+	 * @returns {string} `renderHtml(toSegments(), …)`。
+	 */
+	toHtml() {
+		return renderHtmlFromSegments(this.toSegments(), { supportsAnsi: this.supportsAnsi })
+	}
+	/**
+	 * 将捕获参数序列化为可 JSON 的快照树数组。
+	 * @param {number} [maxDepth=DEFAULT_SNAPSHOT_DEPTH] - 各参数的递归深度上限。
+	 * @returns {import('../shared.d.mts').ArgSnapshot[]} 与参数个数相同的快照数组。
+	 */
+	serializeArgs(maxDepth = DEFAULT_SNAPSHOT_DEPTH) {
+		return getLogEntryArgs(this).map(arg =>
+			serializeArgSnapshot(arg, { maxDepth }))
+	}
+	/**
+	 * 结构化片段：`log`/`dir`/`trace` 等在末尾含 `{ kind: 'text', text: '\\n' }`；流不含。
+	 * @returns {import('../shared.d.mts').LogSegment[]} 可供 `renderPlain` / `renderAnsi` / `renderHtml` 消费。
 	 */
 	toSegments() {
-		const [subject, dirOptions] = getLogEntryArgs(this)
 		const expansionScope = createExpansionScope(this)
-		return [{
-			kind: 'dir',
-			snapshot: serializeArgSnapshot(subject, new WeakSet(), 0, DEFAULT_SNAPSHOT_DEPTH, expansionScope),
-			dirOptions: dirOptions !== undefined ? serializeArgSnapshot(dirOptions, new WeakSet(), 0, DEFAULT_SNAPSHOT_DEPTH, null) : undefined,
-		}]
+		const maxDepth = DEFAULT_SNAPSHOT_DEPTH
+
+		if (this.method === 'stdout' || this.method === 'stderr') {
+			const strippedFirst = stripOscTitleSequences(String(this.streamText ?? ''))
+			if (!strippedFirst.length) return []
+			return [{ kind: 'text', text: strippedFirst }]
+		}
+
+		if (this.method === 'dir') {
+			const [subject, dirOptions] = getLogEntryArgs(this)
+			const segs = /** @type {import('../shared.d.mts').LogSegment[]} */[{
+				kind: 'value',
+				snapshot: serializeArgSnapshot(subject, { maxDepth, expansionScope }),
+				...dirOptions !== undefined
+					? { dirOptions: serializeArgSnapshot(dirOptions, { maxDepth }) }
+					: {},
+			}]
+			return [...segs, { kind: 'text', text: '\n' }]
+		}
+
+		if (this.method === 'trace') {
+			const segs = [
+				...buildArgsSegments(getLogEntryArgs(this), expansionScope, maxDepth),
+				{
+					kind: 'trace',
+					snapshot: serializeArgSnapshot(this.stack, { maxDepth }),
+				},
+			]
+			return [...segs, { kind: 'text', text: '\n' }]
+		}
+
+		return [...buildArgsSegments(getLogEntryArgs(this), expansionScope, maxDepth), { kind: 'text', text: '\n' }]
 	}
 }
 
 /**
- * console.trace() 产生的特化日志条目。
- * toString/toHtml 会在参数内容之后追加格式化的调用栈，
- * 以便还原出与原生 console.trace 相似的完整输出。
- */
-export class TraceLogEntry extends LogEntry {
-	/**
-	 * 构造 `console.trace` 专用条目。
-	 * @param {object} options - 构造选项，字段语义与 {@link LogEntry} 构造函数一致。
-	 * @param {string} options.method - 应为 `"trace"`。
-	 * @param {any[]} options.args - `console.trace` 的原始参数。
-	 * @param {ReturnType<typeof getStackInfo>} [options.stack] - 调用栈。
-	 * @param {number} [options.timestamp] - 记录时间戳。
-	 * @param {boolean} [options.supportsAnsi] - 是否启用 ANSI（控制 `toString()` 是否嵌入 OSC 8 链接）。
-	 */
-	constructor(options) {
-		super(options)
-	}
-	/**
-	 * 将业务参数文本与格式化栈文本拼接后输出。
-	 * @returns {string} 可能含超链接转义序列的 trace 输出。
-	 */
-	toString() {
-		const label = super.toString()
-		const stackText = this.stack.map(frame =>
-			this.supportsAnsi ? traceStackFrameOsc8Ansi(frame) : frame.raw
-		).join('\n')
-		return (label ? label + '\n' : '') + stackText
-	}
-	/**
-	 * 参数片段后接 `kind: 'traceStack'` 的栈帧列表。
-	 * @returns {import('../shared.d.mts').LogSegment[]} 消息片段后接 `traceStack` 栈帧列表。
-	 */
-	toSegments() {
-		return [
-			...buildArgsSegments(getLogEntryArgs(this), createExpansionScope(this), DEFAULT_SNAPSHOT_DEPTH),
-			{
-				kind: 'traceStack', frames: this.stack.map(frame => ({
-					functionName: frame.functionName,
-					filePath: frame.filePath,
-					line: frame.line,
-					column: frame.column,
-					raw: frame.raw,
-				}))
-			},
-		]
-	}
-}
-
-/**
- * 根据 `method` 构造对应的 {@link LogEntry}（含 `dir` / `trace` 特化子类）。
- * @param {object} options - 日志条目构造选项。
- * @param {string} options.method - `console` 方法名或 Node 流级别（如 `stdout`）。
- * @param {any[]} options.args - 原始参数数组。
- * @param {ReturnType<typeof getStackInfo>} [options.stack] - 预采集调用栈。
- * @param {number} [options.timestamp] - Unix 毫秒时间戳。
- * @param {boolean} [options.supportsAnsi] - 是否允许 ANSI 序列。
- * @returns {LogEntry} `DirLogEntry`、`TraceLogEntry` 或普通 `LogEntry` 实例。
+ * @param {object} options - 见 {@link LogEntry} 构造函数。
+ * @returns {LogEntry} 新分配的日志条目实例。
  */
 export function newLogEntry(options) {
-	switch (options.method) {
-		case 'dir': return new DirLogEntry(options)
-		case 'trace': return new TraceLogEntry(options)
-		case 'stdout':
-		case 'stderr':
-			return new StreamLogEntry(options)
-		default: return new LogEntry(options)
-	}
+	return new LogEntry(options)
 }
