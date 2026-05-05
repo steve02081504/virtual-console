@@ -20,14 +20,24 @@ import {
  * @property {string} [traceStackLinkStyle] - trace 栈内链接的 `style`。
  * @property {boolean} [omitPrintfCss=false] - 为 `true` 时忽略 `css` 片段的 `span` 包裹。
  * @property {boolean} [supportsAnsi=true] - 是否按条目能力为 `value` 生成着色 ANSI 再转 HTML。
+ * @property {string} [indent='\t'] - 多行结构缩进单元。
+ * @property {number} [maxDepth=Infinity] - 值快照最大展开深度（与 `dirOptions.depth` 取较小值）。
  * @property {(frame: import('../shared.d.mts').StackFrame) => string | undefined} [resolveTraceFrameHref] -
  *   若返回非空字符串则用作该帧 `<a href>`；未提供或返回假值时回退到内置 `file:` URL 逻辑。
+ */
+
+/**
+ * @typedef {object} RenderPlainOptions
+ * @property {string} [indent='\t'] - 多行结构缩进单元。
+ * @property {number} [maxDepth=Infinity] - 值快照最大展开深度（与 `dirOptions.depth` 取较小值）。
  */
 
 /**
  * @typedef {object} RenderAnsiOptions
  * @property {boolean} [colorize=true] - 为 `false` 时用 {@link stripTerminalDecorations} 剥着色与 OSC8。
  * @property {boolean} [omitPrintfCss=false] - 为 `true` 时不把 `%c` 样式映射为 ANSI 真彩色。
+ * @property {string} [indent='\t'] - 多行结构缩进单元。
+ * @property {number} [maxDepth=Infinity] - 值快照最大展开深度（与 `dirOptions.depth` 取较小值）。
  */
 
 /**
@@ -64,6 +74,8 @@ export function renderHtml(segments, htmlOptions = {}) {
 	if (!segments?.length) return ''
 	const omitPrintfCss = htmlOptions.omitPrintfCss === true
 	const supportsAnsi = htmlOptions.supportsAnsi !== false
+	const indent = htmlOptions.indent ?? '\t'
+	const maxDepth = htmlOptions.maxDepth ?? Infinity
 	let spanOpen = false
 	const parts = []
 	/**
@@ -96,7 +108,8 @@ export function renderHtml(segments, htmlOptions = {}) {
 		else if (segment.kind === 'value') {
 			const opts = resolveValueRenderOptions(segment, supportsAnsi)
 			const ansiInner = formatSnapshotAnsi(segment.snapshot, {
-				depth: opts.depth,
+				depth: Math.min(opts.depth, maxDepth),
+				indent,
 				colorize: opts.colorize,
 			})
 			parts.push(terminalChunkToHtml(ansiInner))
@@ -112,10 +125,13 @@ export function renderHtml(segments, htmlOptions = {}) {
 
 /**
  * @param {import('../shared.d.mts').LogSegment[]} segments - 片段数组。
+ * @param {RenderPlainOptions} [plainOptions] - plain 渲染选项。
  * @returns {string} 去装饰后的纯文本，`trim` 后返回。
  */
-export function renderPlain(segments) {
+export function renderPlain(segments, plainOptions = {}) {
 	if (!segments?.length) return ''
+	const indent = plainOptions.indent ?? '\t'
+	const maxDepth = plainOptions.maxDepth ?? Infinity
 	const parts = []
 	for (const segment of segments) {
 		if (segment.kind === 'css') continue
@@ -123,7 +139,10 @@ export function renderPlain(segments) {
 			parts.push(stripTerminalDecorations(segment.text))
 		else if (segment.kind === 'value') {
 			const opts = resolveValueRenderOptions(segment, true)
-			parts.push(formatSnapshotPlain(segment.snapshot, { depth: opts.depth }))
+			parts.push(formatSnapshotPlain(segment.snapshot, {
+				depth: Math.min(opts.depth, maxDepth),
+				indent,
+			}))
 		}
 		else if (segment.kind === 'trace')
 			parts.push(snapshotToTraceFrames(segment.snapshot).map(f => f.raw).join('\n'))
@@ -140,6 +159,8 @@ export function renderAnsi(segments, ansiOptions = {}) {
 	if (!segments?.length) return ''
 	const baseColorize = ansiOptions.colorize !== false
 	const omitPrintfCss = ansiOptions.omitPrintfCss === true
+	const indent = ansiOptions.indent ?? '\t'
+	const maxDepth = ansiOptions.maxDepth ?? Infinity
 	/** @type {string} 当前 `%c` 映射得到的 ANSI 前缀（无重置后缀） */
 	let printfStylePrefix = ''
 	/**
@@ -167,7 +188,8 @@ export function renderAnsi(segments, ansiOptions = {}) {
 		else if (segment.kind === 'value') {
 			const opts = resolveValueRenderOptions(segment, baseColorize)
 			const inner = formatSnapshotAnsi(segment.snapshot, {
-				depth: opts.depth,
+				depth: Math.min(opts.depth, maxDepth),
+				indent,
 				colorize: opts.colorize,
 			})
 			parts.push(wrapPrintfStyle(inner))

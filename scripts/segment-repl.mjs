@@ -30,34 +30,63 @@ const HEADER = {
 	evalHtml: '\x1b[1;36m━━ value snapshot → HTML ━━\x1b[0m',
 }
 
+const replOptions = {
+	snapshotMaxDepth: DEFAULT_SNAPSHOT_DEPTH,
+	render: {
+		indent: '\t',
+		maxDepth: Infinity,
+		colorize: true,
+		supportsAnsi: true,
+	},
+	inspect: {
+		colors: true,
+		depth: 12,
+		maxArrayLength: 50,
+		maxStringLength: 2000,
+	},
+}
+
 /**
  * 与正式管线一致：求值结果先 `serializeArgSnapshot` 再包成**单条** `kind: 'value'` 片段，
  * 经 `renderAnsi` / `renderPlain` / `renderHtml` 从**同一份快照**派生各视图
  *（另用 `util.inspect` 作 Node 侧参照，不经过片段）。
  * @param {unknown} value - 任意求值结果。
+ * @param {number} [snapshotMaxDepth=DEFAULT_SNAPSHOT_DEPTH] - 快照序列化深度。
  * @returns {import('../src/shared.d.mts').LogSegment[]} 单元素数组：`kind: 'value'` + `serializeArgSnapshot` 快照。
  */
-function valueToSegments(value) {
+function valueToSegments(value, snapshotMaxDepth = DEFAULT_SNAPSHOT_DEPTH) {
 	return [{
 		kind: 'value',
-		snapshot: serializeArgSnapshot(value, { maxDepth: DEFAULT_SNAPSHOT_DEPTH }),
+		snapshot: serializeArgSnapshot(value, { maxDepth: snapshotMaxDepth }),
 	}]
 }
 
 /**
  * 将单次求值结果按与正式管线相同的方式打印（片段 → ANSI / plain / HTML），并附带 `util.inspect` 对照。
  * @param {unknown} value - 求值结果。
+ * @param {typeof replOptions} [options=replOptions] - 渲染配置（REPL 内可直接修改）。
  */
-function displayEvalResult(value) {
-	const segments = valueToSegments(value)
+function displayEvalResult(value, options = replOptions) {
+	const segments = valueToSegments(value, options.snapshotMaxDepth)
 	nativeLog(HEADER.evalAnsi)
-	nativeLog(renderAnsi(segments, { colorize: true }))
+	nativeLog(renderAnsi(segments, {
+		colorize: options.render.colorize,
+		indent: options.render.indent,
+		maxDepth: options.render.maxDepth,
+	}))
 	nativeLog(HEADER.evalPlain)
-	nativeLog(renderPlain(segments))
+	nativeLog(renderPlain(segments, {
+		indent: options.render.indent,
+		maxDepth: options.render.maxDepth,
+	}))
 	nativeLog(HEADER.evalHtml)
-	nativeLog(renderHtml(segments, { supportsAnsi: true }))
+	nativeLog(renderHtml(segments, {
+		supportsAnsi: options.render.supportsAnsi,
+		indent: options.render.indent,
+		maxDepth: options.render.maxDepth,
+	}))
 	nativeLog(HEADER.inspect)
-	nativeLog(util.inspect(value, { colors: true, depth: 12, maxArrayLength: 50, maxStringLength: 2000 }))
+	nativeLog(util.inspect(value, options.inspect))
 }
 
 /**
@@ -103,6 +132,7 @@ function replWriter(output) {
 nativeLog('\x1b[1mvirtual-console segment REPL\x1b[0m')
 nativeLog('· 输入表达式求值：结果会以「快照片段 → ANSI / plain / HTML」与 `util.inspect` 对照输出。')
 nativeLog('· 使用 \x1b[33mlog(...args)\x1b[0m：与 console.log 相同参数规则；首参为 string 时解析 % 占位符。')
+nativeLog('· 可直接修改 \x1b[33moptions\x1b[0m（如 `options.render.indent = "  "` / `options.render.maxDepth = 5` / `options.snapshotMaxDepth = 3`）。')
 nativeLog('· 退出：\x1b[33m.exit\x1b[0m 或 Ctrl+D。\n')
 
 const r = repl.start({
@@ -125,3 +155,4 @@ r.eval = (cmd, context, filename, callback) => {
 }
 
 r.context.log = segmentLog
+r.context.options = replOptions

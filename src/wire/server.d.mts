@@ -40,11 +40,28 @@ export type LogWireWebSocketHandler = ((
 	closeAllWithFinalJson: (payload: object) => Promise<void>
 }
 
+export type LogWireServerClientMessageEvent = {
+	ws: unknown
+	req: unknown
+	message: Record<string, unknown>
+	clientCount: number
+}
+
+export type LogWireServerClientMessageHandler = (
+	event: LogWireServerClientMessageEvent
+) => object | null | void | Promise<object | null | void>
+
 export declare function createLogWireWebSocketHandler(
 	virtualConsole: {
 		outputEntries: unknown[]
 		addLogEntryListener: (fn: (entry: unknown) => void) => void
 		addClearListener: (fn: () => void) => void
 		clear: () => void
+	},
+	wireOptions?: {
+		onClientConnected?: (event: { ws: unknown; req: unknown; clientCount: number }) => void
+		onClientDisconnected?: (event: { ws: unknown; reason: 'close' | 'error'; clientCount: number }) => void
+		onClientMessage?: LogWireServerClientMessageHandler
+		clientMessageHandlers?: Record<string, LogWireServerClientMessageHandler>
 	}
 ): LogWireWebSocketHandler

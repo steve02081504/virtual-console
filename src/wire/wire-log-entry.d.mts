@@ -15,11 +15,11 @@ export declare class WireLogEntry {
 		supportsAnsi?: boolean
 	})
 	/** 展开后终端 ANSI 串 */
-	renderString(): Promise<string>
+	renderString(options?: { indent?: string; maxDepth?: number }): Promise<string>
 	/** 展开后纯文本 */
-	renderPlain(): Promise<string>
+	renderPlain(options?: { indent?: string; maxDepth?: number }): Promise<string>
 	/** 展开后 HTML */
-	renderHtml(): Promise<string>
+	renderHtml(options?: { indent?: string; maxDepth?: number }): Promise<string>
 	toJSON(): Record<string, unknown>
 	static from(value: unknown, wire: {
 		requestExpand: (ref: string) => Promise<unknown>

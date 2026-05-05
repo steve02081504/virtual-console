@@ -60,13 +60,25 @@ export function handleClientWireMessage(parsed, handlers = {}) {
  *   addClearListener: (fn: () => void) => void
  *   clear: () => void
  * }} virtualConsole - 带缓冲与监听器的宿主控制台（通常为 `VirtualConsole`）。
+ * @param {{
+ *   onClientConnected?: (event: { ws: unknown, req: unknown, clientCount: number }) => void | Promise<void>
+ *   onClientDisconnected?: (event: { ws: unknown, reason: 'close' | 'error', clientCount: number }) => void | Promise<void>
+ *   onClientMessage?: (event: { ws: unknown, req: unknown, message: Record<string, unknown>, clientCount: number }) => object | null | void | Promise<object | null | void>
+ *   clientMessageHandlers?: Record<string, (event: { ws: unknown, req: unknown, message: Record<string, unknown>, clientCount: number }) => object | null | void | Promise<object | null | void>>
+ * }} [wireOptions] - 连接生命周期钩子与自定义上行消息处理器（仅处理非内置 `expand/clear` 请求）。
  * @returns {(ws: { readyState: number, send: (data: string) => void, on: (ev: string, fn: (...args: unknown[]) => void) => void, close?: (code?: number, reason?: string) => void }, req?: unknown) => void) & {
  *   broadcastJson: (payload: object) => void,
  *   forEachClient: (fn: (ws: unknown) => void) => void,
  *   closeAllWithFinalJson: (payload: object) => Promise<void>,
  * }} 供挂载的 `(ws, req) => void`，并附带 `broadcastJson` / `forEachClient` / `closeAllWithFinalJson` 控制面。
  */
-export function createLogWireWebSocketHandler(virtualConsole) {
+export function createLogWireWebSocketHandler(virtualConsole, wireOptions = {}) {
+	const {
+		onClientConnected,
+		onClientDisconnected,
+		onClientMessage,
+		clientMessageHandlers = {},
+	} = wireOptions
 	const clients = new Set()
 	virtualConsole.addLogEntryListener((entry) => {
 		const payload = JSON.stringify({
@@ -82,12 +94,45 @@ export function createLogWireWebSocketHandler(virtualConsole) {
 	 * @param {{ readyState: number, send: (data: string) => void, on: (ev: string, fn: (...args: unknown[]) => void) => void, close?: (code?: number, reason?: string) => void }} ws - WebSocket 兼容连接。
 	 * @param {unknown} [req] - 升级请求（若有）。
 	 */
-	const handler = (ws, req) => {
+	const handler = async (ws, req) => {
+		/**
+		 * 发送 JSON 回包（当自定义消息处理器返回对象时使用）。
+		 * @param {object | null | void} maybePayload - 可能的回包对象。
+		 * @returns {void}
+		 */
+		function sendCustomReply(maybePayload) {
+			if (maybePayload) try {
+				ws.send(JSON.stringify(maybePayload))
+			}
+			catch {
+				/* ignore send failure */
+			}
+		}
+
+		/**
+		 * 分发自定义上行消息；先命中 `clientMessageHandlers[type]`，再走 `onClientMessage` 兜底。
+		 * 两者若返回对象都会作为 JSON 回包发回当前连接。
+		 * @param {Record<string, unknown>} message - 客户端上行 JSON。
+		 * @returns {Promise<void>}
+		 */
+		async function dispatchCustomClientMessage(message) {
+			const event = { ws, req, message, clientCount: clients.size }
+			const messageType = message.type
+			if (clientMessageHandlers[messageType])
+				return sendCustomReply(await clientMessageHandlers[messageType](event))
+			sendCustomReply(await onClientMessage?.(event))
+		}
+
 		clients.add(ws)
 		ws.send(JSON.stringify({
 			type: logWirePayloadTypes.SNAPSHOT,
 			entries: virtualConsole.outputEntries.map(entry => serializeLogEntryForWire(entry)),
 		}))
+		onClientConnected?.({
+			ws,
+			req,
+			clientCount: clients.size,
+		})
 		ws.on('message', (raw) => {
 			let parsed
 			try {
@@ -103,13 +148,24 @@ export function createLogWireWebSocketHandler(virtualConsole) {
 				const message = /** @type {Record<string, unknown>} */ parsed
 				if (message.type === logWirePayloadTypes.CLEAR_REQUEST)
 					virtualConsole.clear()
+				else dispatchCustomClientMessage(message)
 			}
 		})
 		ws.on('error', () => {
-			clients.delete(ws)
+			if (clients.delete(ws))
+				onClientDisconnected?.({
+					ws,
+					reason: 'error',
+					clientCount: clients.size,
+				})
 		})
 		ws.on('close', () => {
-			clients.delete(ws)
+			if (clients.delete(ws))
+				onClientDisconnected?.({
+					ws,
+					reason: 'close',
+					clientCount: clients.size,
+				})
 		})
 	}
 

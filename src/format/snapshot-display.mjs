@@ -10,6 +10,7 @@ import { ansiHyperlink, stripTerminalDecorations } from './ansi.mjs'
 /**
  * @typedef {object} FormatSnapshotOptions
  * @property {number} [depth=Infinity] - 对象展开最大深度（超过则输出 `[Object]` 风格占位）。
+ * @property {string} [indent='\t'] - 多行结构的缩进单元。
  * @property {boolean} [colorize=true] - ANSI 路径是否着色；plain 路径忽略。
  */
 
@@ -421,6 +422,7 @@ function formatErrorSnapshotAnsiFromFrames(name, msg, frames, extraRendered, col
 function formatSnapshotInner(snap, options) {
 	const colorize = options.colorize !== false
 	const depthLimit = options.depth ?? Infinity
+	const indentUnit = typeof options.indent === 'string' ? options.indent : '\t'
 	const colors = colorize ? {
 		reset: '\x1b[0m',
 		green: '\x1b[32m',
@@ -467,8 +469,8 @@ function formatSnapshotInner(snap, options) {
 			const compactInner = compactLines.join(', ')
 			if (!compactInner.includes('\n') && compactInner.length <= 120)
 				return ` { ${compactInner} }`
-			const spaces = '\t'.repeat(objectDepth + 1)
-			const nextIndent = '\t'.repeat(objectDepth)
+			const spaces = indentUnit.repeat(objectDepth + 1)
+			const nextIndent = indentUnit.repeat(objectDepth)
 			const lines = entries.map(entry => {
 				if (!entry || typeof entry !== 'object') return `${spaces}?`
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
@@ -485,8 +487,13 @@ function formatSnapshotInner(snap, options) {
 
 		const node = /** @type {Record<string, unknown>} */ snapshotNode
 
-		if (node.kind === 'truncated')
-			return `${colors.grey}${String(node.label ?? '…')}${colors.reset}`
+		if (node.kind === 'truncated') {
+			const rawLabel = String(node.label ?? 'Object')
+			const bracketed = rawLabel.startsWith('[') && rawLabel.endsWith(']')
+				? rawLabel
+				: `[${rawLabel}]`
+			return `${colors.cyan}${bracketed}${colors.reset}`
+		}
 
 		if (node.kind === 'null')
 			return `${colors.reset}null${colors.reset}`
@@ -580,7 +587,7 @@ function formatSnapshotInner(snap, options) {
 			const lines = items.map(({ key, value: val }) => {
 				const ks = formatNode(key, objectDepth + 1)
 				const vs = formatNode(val, objectDepth + 1)
-				return `\t${ks} => ${vs}`
+				return `${indentUnit}${ks} => ${vs}`
 			})
 			return `${colors.cyan}Map(${items.length}) ${colors.reset}{\n${lines.join(',\n')}\n}`
 		}
@@ -590,7 +597,7 @@ function formatSnapshotInner(snap, options) {
 				return `${colors.cyan}[Set]${colors.reset}`
 			const items = /** @type {unknown[]} */ node.items || []
 			if (!items.length) return `${colors.cyan}Set(0) {}${colors.reset}`
-			const lines = items.map(el => `\t${formatNode(el, objectDepth + 1)}`)
+			const lines = items.map(el => `${indentUnit}${formatNode(el, objectDepth + 1)}`)
 			return `${colors.cyan}Set(${items.length}) ${colors.reset}{\n${lines.join(',\n')}\n}`
 		}
 
@@ -603,9 +610,9 @@ function formatSnapshotInner(snap, options) {
 			const compactInner = rendered.join(', ')
 			if (!compactInner.includes('\n') && compactInner.length <= 80)
 				return `[ ${compactInner} ]`
-			const spaces = '\t'.repeat(objectDepth + 1)
+			const spaces = indentUnit.repeat(objectDepth + 1)
 			const inner = rendered.map(el => `${spaces}${el}`).join(',\n')
-			const openIndent = '\t'.repeat(objectDepth)
+			const openIndent = indentUnit.repeat(objectDepth)
 			return `[\n${inner}\n${openIndent}]`
 		}
 
@@ -621,8 +628,8 @@ function formatSnapshotInner(snap, options) {
 			const isArrayLike = node.kind === 'array'
 			const open = isArrayLike ? '[' : '{'
 			const close = isArrayLike ? ']' : '}'
-			const spaces = '\t'.repeat(objectDepth + 1)
-			const nextIndent = '\t'.repeat(objectDepth)
+			const spaces = indentUnit.repeat(objectDepth + 1)
+			const nextIndent = indentUnit.repeat(objectDepth)
 			const lines = entries.map(entry => {
 				if (!entry || typeof entry !== 'object') return `${spaces}?`
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry

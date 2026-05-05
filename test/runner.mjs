@@ -1,3 +1,3 @@
-import { runAllTests } from './suites/integration.mjs'
+import { runAllTests } from './suites/integration/index.mjs'
 
 await runAllTests()

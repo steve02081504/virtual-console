@@ -36,7 +36,7 @@ The default entry (`.`) only re-exports **`VirtualConsole`**, **`console`**, **`
 | `@steve02081504/virtual-console/node` / `…/browser`       | Full platform API (`VirtualConsole`, `WireLogEntry`, `renderPlain` / `renderAnsi` / `renderHtml`, stack & snapshot helpers, etc.) + environment-accurate types. |
 | `@steve02081504/virtual-console/wire/protocol`            | Log wire `type` constants + `dispatchLogWireMessage`.                                                                                                           |
 | `@steve02081504/virtual-console/wire/server`              | Server-side payload helpers + `createLogWireWebSocketHandler`.                                                                                                  |
-| `@steve02081504/virtual-console/wire/client`              | `connectLogWire` / `attachLogWireWebSocket`.                                                                                                                    |
+| `@steve02081504/virtual-console/wire/client`              | `connectLogWire` / `attachLogWire`.                                                                                                                             |
 | `@steve02081504/virtual-console/wire/serialize-log-entry` | `serializeLogEntryForWire` only (flat DTO for WebSocket JSON: `segments`, callsite metadata; no raw `args`).                                                    |
 
 Import **`serializeLogEntryForWire`** only from **`@steve02081504/virtual-console/wire/serialize-log-entry`**, or compose payloads with **`makeAppendPayload` / `makeSnapshotPayload`** from **`wire/server`**. Wire helpers are not re-exported from the root **`/node`** entry.
@@ -142,6 +142,30 @@ console.log(vc.outputEntries.map((e) => e.level));
 
 With `realConsoleOutput: true` on Node, `writeAs` routes warn/error/trace-style levels to stderr and the rest to stdout, similar to `console`.
 
+### Custom indentation and depth (`dir` + `render*`)
+
+```javascript
+const vc = new VirtualConsole();
+
+await vc.hookAsyncContext(() => {
+  console.dir(
+    { user: { profile: { name: 'Ada', skills: ['js', 'ts'] } } },
+    { depth: 2 }, // capture-side depth hint (like native console.dir)
+  );
+});
+
+const entry = vc.outputEntries[0];
+
+// Local log entries:
+const ansi = entry.toString(); // default formatting
+const plain = renderPlain(entry.toSegments(), { indent: '  ', maxDepth: 1 });
+
+// Wire entries use the same knobs:
+// await wireEntry.renderPlain({ indent: '  ', maxDepth: 1 });
+```
+
+`depth` in `console.dir(value, { depth })` is preserved in the entry’s `value` segment and respected by renderers. `maxDepth` is an additional hard cap at render time; effective depth is `min(dirOptions.depth, maxDepth)`. `indent` controls multi-line indentation (default: tab).
+
 ### Cap memory: `maxLogEntries`
 
 ```javascript
@@ -189,7 +213,7 @@ vc.addLogEntryListener(onEntry);
   - `toSegments()` — structured fragments for UI mapping (`LogSegment[]`)
   - `toString()` / `toPlainText()` / `toHtml()` — ANSI terminal text, unescaped plain text, and HTML respectively
 
-  `console.dir()` produces **`LogEntry`** instances with `level` **`log`** and `method` **`dir`**; `toString()` / `toHtml()` render the inspected object like `console.dir`, honoring `console.dir` options when provided.
+  `console.dir()` produces **`LogEntry`** instances with `level` **`log`** and `method` **`dir`**; `toString()` / `toHtml()` render the inspected object like `console.dir`, honoring `console.dir` options (for example `depth`) when provided. For explicit render-time control, render from `toSegments()` via `renderPlain` / `renderAnsi` / `renderHtml` with `indent` / `maxDepth`.
 
   `console.trace()` produces **`LogEntry`** instances with `level` **`debug`** and `method` **`trace`**; `toString()` / `toHtml()` append formatted stack output after the message. They inherit `supportsAnsi` from the host `VirtualConsole` options; when true, `toString()` may embed OSC 8 hyperlink sequences for file/line references.
 
@@ -215,7 +239,7 @@ vc.addLogEntryListener(onEntry);
 
 - **`clear()`** — Clears all captured entries and resets the `freshLine` state. Then invokes **`addClearListener`** callbacks synchronously (no synthetic log entry). When `realConsoleOutput` is enabled, also calls `clear()` on the underlying console.
 
-- **`addClearListener(fn)`** / **`removeClearListener(fn)`** — Register/unregister callbacks invoked synchronously after **`clear()`** completes (buffer empty, optional underlying `clear()` already called). Use with **`createLogWireWebSocketHandler`** / **`attachLogWireWebSocket`** for remote UI sync.
+- **`addClearListener(fn)`** / **`removeClearListener(fn)`** — Register/unregister callbacks invoked synchronously after **`clear()`** completes (buffer empty, optional underlying `clear()` already called). Use with **`createLogWireWebSocketHandler`** / **`attachLogWire`** for remote UI sync.
 
 - **`writeAs(level, ...args)`** — Record an entry at any log level, bypassing `console.*` method routing entirely. Useful for custom levels or injecting synthetic entries. With `realConsoleOutput: true` on Node, warn/error/trace-style levels go to stderr and everything else to stdout.
 
@@ -237,7 +261,7 @@ Semantic **`level`** (what you read on `entry.level`) vs originating **`method`*
 
 ## Log wire protocol (WebSocket JSON)
 
-Stable `type` strings live on **`logWirePayloadTypes`** (`vc_*`). Custom frames (shutdown, app events, etc.) use your own `type` plus **`extensionHandlers`** on **`dispatchLogWireMessage`** / **`attachLogWireWebSocket`**; on the server, **`JSON.stringify`** your payload and **`ws.send`** it (body shape is application-defined).
+Stable `type` strings live on **`logWirePayloadTypes`** (`vc_*`). Custom frames (shutdown, app events, etc.) use your own `type` plus **`extensionHandlers`** on **`dispatchLogWireMessage`** / **`attachLogWire`**; on the server, **`JSON.stringify`** your payload and **`ws.send`** it (body shape is application-defined).
 
 | Direction                        | `type` (`logWirePayloadTypes`) |
 | -------------------------------- | ------------------------------ |
@@ -250,15 +274,29 @@ Stable `type` strings live on **`logWirePayloadTypes`** (`vc_*`). Custom frames 
 
 Wire protocol modules are **not** re-exported from **`/node`** or **`/browser`**; import them from **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, **`/wire/client`**, or **`/wire/serialize-log-entry`** for tree-shaken builds.
 
-Use **`JSON.parse`** on each inbound text frame, then **`await dispatchLogWireMessage`** (callbacks may be `async`). **`onSnapshot`** receives **`entries`** only; **`onAppend`** receives the **`entry`** object only; **`onClear`** takes no arguments. Use **`extensionHandlers`** for custom `type` values (and **`onUnknown`** as fallback). If you use **`attachLogWireWebSocket`**, rely on **`requestExpand(ref)`** (Promise) for expand — avoid duplicating **`onExpandResult`** unless you parse frames yourself.
+Use **`JSON.parse`** on each inbound text frame, then **`await dispatchLogWireMessage`** (callbacks may be `async`). **`onSnapshot`** receives **`entries`** only; **`onAppend`** receives the **`entry`** object only; **`onClear`** takes no arguments. Use **`extensionHandlers`** for custom `type` values (and **`onUnknown`** as fallback). If you use **`attachLogWire`**, rely on **`requestExpand(ref)`** (Promise) for expand — avoid duplicating **`onExpandResult`** unless you parse frames yourself.
 
-Use **`makeAppendPayload` / `makeSnapshotPayload` / `makeExpandResponse`** from **`@steve02081504/virtual-console/wire/server`** when building messages next to `VirtualConsole`.
+Use **`makeAppendPayload` / `makeSnapshotPayload` / `makeExpandResponse` / `makeExpandErrorResponse`** from **`@steve02081504/virtual-console/wire/server`** when building messages next to `VirtualConsole`.
+
+Use **`parseClientExpandMessage`** / **`parseClientClearMessage`** for low-level frame parsing when you need to branch before full dispatch.
 
 On the server, **`handleClientWireMessage`** handles inbound **`vc_expand_request`** and returns **`vc_expand_result`**. Inbound **`vc_clear_request`** is handled inside **`createLogWireWebSocketHandler`** (not by **`handleClientWireMessage`**).
 
 For Express/`ws`-style apps, **`createLogWireWebSocketHandler(virtualConsole)`** registers **`addLogEntryListener`** once, **`addClearListener`** once (broadcasts **`vc_log_cleared`** when the host **`clear()`** runs), and handles **`vc_clear_request`** from clients by calling **`virtualConsole.clear()`**.
 
-**`connectLogWire`** / **`attachLogWireWebSocket`** pass **`WireLogEntry[]`** to **`onSnapshot`**, a single **`WireLogEntry`** to **`onAppend`**, and no arguments to **`onClear`**. Import **`WireLogEntry`** from **`/wire/client`** (or from **`/node`** / **`/browser`**, which re-export the same class). After **`vc_expand_*`** resolves **`truncated`** nodes, **`await entry.renderString()`** (ANSI), **`await entry.renderPlain()`**, and **`await entry.renderHtml()`** render from the payload’s **`segments`**. Options include **`supportsAnsi`** (defaults to **`supports-ansi`** detection). Also supports **`extensionHandlers`**, **`requestExpand`**, and **`requestClear()`** (sends **`vc_clear_request`**). Low-level **`renderPlain`** / **`renderAnsi`** / **`renderHtml`** (for raw **`LogSegment[]`**) are only exported from **`/node`** or **`/browser`**, not from the default `.` entry.
+**`connectLogWire`** / **`attachLogWire`** pass **`WireLogEntry[]`** to **`onSnapshot`**, a single **`WireLogEntry`** to **`onAppend`**, and no arguments to **`onClear`**. Import **`WireLogEntry`** from **`/wire/client`** (or from **`/node`** / **`/browser`**, which re-export the same class). After **`vc_expand_*`** resolves **`truncated`** nodes, **`await entry.renderString()`** (ANSI), **`await entry.renderPlain()`**, and **`await entry.renderHtml()`** render from the payload’s **`segments`**; each render method accepts `{ indent, maxDepth }`. Options include **`supportsAnsi`** (defaults to **`supports-ansi`** detection). The returned client handle also includes **`sendJson(obj)`** (custom uplink), **`requestClear()`** (sends **`vc_clear_request`**), **`close(code, reason)`**, and **`detach()`** (removes listeners and rejects pending `requestExpand` promises with `log_wire_detached`). Low-level **`renderPlain`** / **`renderAnsi`** / **`renderHtml`** (for raw **`LogSegment[]`**) are only exported from **`/node`** or **`/browser`**, not from the default `.` entry.
+
+`createLogWireWebSocketHandler(virtualConsole, wireOptions)` also supports server lifecycle hooks:
+
+- **`onClientConnected`** — called after snapshot send and registration.
+- **`onClientDisconnected`** — called on `close` / `error` with reason and current client count.
+- **`clientMessageHandlers[type]`** and **`onClientMessage`** — custom uplink handling for non-built-in message types; returned objects are JSON-replied to the sender.
+
+The returned handler exposes a control plane in addition to `(ws, req) => void`:
+
+- **`broadcastJson(payload)`** — send one custom JSON frame to all OPEN clients.
+- **`forEachClient(fn)`** — iterate currently registered clients (OPEN or not).
+- **`closeAllWithFinalJson(payload)`** — best-effort final broadcast + close each OPEN client, waits until close settles.
 
 ```javascript
 // Lightweight parse-only (CDN-friendly)

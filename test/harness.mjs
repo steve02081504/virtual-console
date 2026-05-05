@@ -56,3 +56,15 @@ export function assertIncludes(str, substr, message) {
 		failed++
 	}
 }
+
+/**
+ * 顺序执行同一主题测试，便于阅读与维护。
+ * @param {string} title - 分组标题。
+ * @param {Array<() => void | Promise<void>>} tests - 测试函数列表。
+ * @returns {Promise<void>}
+ */
+export async function runTestGroup(title, tests) {
+	console.log(`\n--- [${title}] ---`)
+	for (const testFn of tests)
+		await testFn()
+}

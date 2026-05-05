@@ -25,6 +25,12 @@ import {
  */
 
 /**
+ * @typedef {object} WireRenderOptions
+ * @property {string} [indent='\t'] - 多行结构缩进单元。
+ * @property {number} [maxDepth=Infinity] - 值快照最大展开深度。
+ */
+
+/**
  * 线路下行单条日志：`render*` 异步仅用于 wire；展开后与进程内 {@link LogEntry} 的 `toString` / `toPlainText` / `toHtml` 同管线。
  */
 export class WireLogEntry {
@@ -83,49 +89,75 @@ export class WireLogEntry {
 
 	/**
 	 * 等待全部 `truncated.ref` 展开后返回终端 ANSI 串；无片段时返回空串。
+	 * @param {WireRenderOptions} [options] - 渲染选项。
 	 * @returns {Promise<string>} 异步解析得到的 ANSI 正文。
 	 */
-	renderString() {
-		return this.#renderString()
+	renderString(options) {
+		return this.#renderString(options)
 	}
 
 	/**
 	 * 展开后返回纯文本（剥除 ANSI/OSC）；无片段时返回空串。
+	 * @param {WireRenderOptions} [options] - 渲染选项。
 	 * @returns {Promise<string>} 异步解析得到的纯文本。
 	 */
-	renderPlain() {
-		return this.#renderPlain()
+	renderPlain(options) {
+		return this.#renderPlain(options)
 	}
 
 	/**
 	 * 展开后返回 HTML。
+	 * @param {WireRenderOptions} [options] - 渲染选项。
 	 * @returns {Promise<string>} 异步解析得到的 HTML 字符串。
 	 */
-	renderHtml() {
-		return this.#renderHtml()
+	renderHtml(options) {
+		return this.#renderHtml(options)
 	}
 
-	/** @returns {Promise<string>} 展开后 ANSI 串或空串。 */
-	async #renderString() {
+	/**
+	 * @param {WireRenderOptions} [options] - ANSI 渲染选项（缩进与最大深度）。
+	 * @returns {Promise<string>} 展开后 ANSI 串或空串。
+	 */
+	async #renderString(options) {
 		const segments = await this.#ensureExpanded()
 		if (segments.length > 0)
-			return renderAnsi(segments, { colorize: this.#supportsAnsi })
+			return renderAnsi(segments, {
+				colorize: this.#supportsAnsi,
+				indent: options?.indent ?? '\t',
+				maxDepth: options?.maxDepth ?? Infinity,
+			})
+
 		return ''
 	}
 
-	/** @returns {Promise<string>} 展开后纯文本或空串。 */
-	async #renderPlain() {
+	/**
+	 * @param {WireRenderOptions} [options] - 纯文本渲染选项（缩进与最大深度）。
+	 * @returns {Promise<string>} 展开后纯文本或空串。
+	 */
+	async #renderPlain(options) {
 		const segments = await this.#ensureExpanded()
 		if (segments.length > 0)
-			return renderPlain(segments)
+			return renderPlain(segments, {
+				indent: options?.indent ?? '\t',
+				maxDepth: options?.maxDepth ?? Infinity,
+			})
+
 		return ''
 	}
 
-	/** @returns {Promise<string>} 展开后 HTML 或空串。 */
-	async #renderHtml() {
+	/**
+	 * @param {WireRenderOptions} [options] - HTML 渲染选项（缩进与最大深度）。
+	 * @returns {Promise<string>} 展开后 HTML 或空串。
+	 */
+	async #renderHtml(options) {
 		const segments = await this.#ensureExpanded()
 		if (segments.length > 0)
-			return renderHtml(segments, { supportsAnsi: this.#supportsAnsi })
+			return renderHtml(segments, {
+				supportsAnsi: this.#supportsAnsi,
+				indent: options?.indent ?? '\t',
+				maxDepth: options?.maxDepth ?? Infinity,
+			})
+
 		return ''
 	}
 
