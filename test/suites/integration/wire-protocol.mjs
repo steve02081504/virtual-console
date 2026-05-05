@@ -248,6 +248,102 @@ async function testWireHelpers() {
 	assertEqual(await w.renderString(), 'hi', 'WireLogEntry renderString')
 	assertIncludes(await w.renderHtml(), 'hi', 'WireLogEntry renderHtml')
 	assertEqual(w.segments.length, 1, 'segments 长度')
+
+	// 深度链：0(root)->1->2->3->4(truncated ref_deep)
+	/** @type {Array<number | undefined>} */
+	const requestedDepths = []
+	const deepTruncatedEntry = WireLogEntry.from({
+		id: 3,
+		level: 'log',
+		method: 'log',
+		timestamp: 3,
+		segments: [{
+			kind: 'value',
+			snapshot: {
+				kind: 'object',
+				entries: [{
+					key: 'a',
+					value: {
+						kind: 'object',
+						entries: [{
+							key: 'b',
+							value: {
+								kind: 'object',
+								entries: [{
+									key: 'c',
+									value: {
+										kind: 'object',
+										entries: [{ key: 'd', value: { kind: 'truncated', ref: 'ref_deep', label: 'Object' } }],
+									},
+								}],
+							},
+						}],
+					},
+				}],
+			},
+		}],
+		stack: [],
+	}, {
+		/**
+		 * 记录深层截断节点展开请求参数并返回固定快照。
+		 * @param {string} ref - 截断引用标识。
+		 * @param {number | undefined} maxDepth - 客户端请求的剩余展开深度。
+		 * @returns {Promise<import('@steve02081504/virtual-console/shared').ArgSnapshot>} 展开后的快照。
+		 */
+		requestExpand: async (ref, maxDepth) => {
+			assertEqual(ref, 'ref_deep', '深层展开 ref 正确')
+			requestedDepths.push(maxDepth)
+			return { kind: 'object', entries: [{ key: 'leaf', value: { kind: 'string', value: 'ok' } }] }
+		},
+		supportsAnsi: false,
+	})
+	await deepTruncatedEntry.renderPlain({ maxDepth: 7 })
+	assertEqual(requestedDepths[0], 3, '展开请求使用剩余深度（7-4=3）')
+
+	/** @type {Array<{ ref: string, maxDepth: number | undefined }>} */
+	const concurrentCalls = []
+	let gateOpen = false
+	/** @type {(() => void) | null} */
+	let openGate = null
+	const waitGate = new Promise((resolve) => { openGate = resolve })
+	const concurrentEntry = WireLogEntry.from({
+		id: 4,
+		level: 'log',
+		method: 'log',
+		timestamp: 4,
+		segments: [{
+			kind: 'value',
+			snapshot: { kind: 'truncated', ref: 'ref_concurrent', label: 'Object' },
+		}],
+		stack: [],
+	}, {
+		/**
+		 * 模拟并发展开请求：首个请求阻塞到 gate 打开后继续。
+		 * @param {string} ref - 当前展开引用。
+		 * @param {number | undefined} maxDepth - 请求深度上限。
+		 * @returns {Promise<import('@steve02081504/virtual-console/shared').ArgSnapshot>} 对应引用的展开结果。
+		 */
+		requestExpand: async (ref, maxDepth) => {
+			concurrentCalls.push({ ref, maxDepth })
+			if (!gateOpen) {
+				await waitGate
+				gateOpen = true
+			}
+			if (ref === 'ref_concurrent')
+				return {
+					kind: 'object',
+					entries: [{ key: 'next', value: { kind: 'truncated', ref: 'ref_nested', label: 'Object' } }],
+				}
+			return { kind: 'object', entries: [] }
+		},
+		supportsAnsi: false,
+	})
+	const pLow = concurrentEntry.renderPlain({ maxDepth: 3 })
+	const pHigh = concurrentEntry.renderHtml({ maxDepth: 7 })
+	openGate?.()
+	await Promise.all([pLow, pHigh])
+	assert(concurrentCalls.some((x) => x.maxDepth === 3), '并发中低深度请求存在')
+	assert(concurrentCalls.some((x) => x.ref === 'ref_nested' && x.maxDepth === 6), '并发中高深度任务会在低深度任务后继续补展开')
 }
 
 /**

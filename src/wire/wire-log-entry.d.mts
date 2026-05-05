@@ -1,4 +1,4 @@
-import type { LogSegment } from '../shared.d.mts'
+import type { LogSegment, StackFrame } from '../shared.d.mts'
 
 /**
  * 线路 JSON 载荷包装：仅 wire 侧提供异步 `render*`；展开 `truncated` 后与进程内 {@link LogEntry} 的 `toString` / `toPlainText` / `toHtml` 对齐（由 `segments` 渲染；无片段则空串）。
@@ -8,10 +8,16 @@ export declare class WireLogEntry {
 	readonly level: string | undefined
 	readonly method: string | undefined
 	readonly timestamp: number | undefined
-	/** 当前（已展开则已展开）片段 */
-	get segments(): LogSegment[]
+	/** 调用栈帧数组 */
+	readonly stack: StackFrame[]
+	/** 是否启用 ANSI 颜色渲染 */
+	supportsAnsi: boolean
+	/** 日志片段数组（展开时会就地替换 truncated 占位） */
+	segments: LogSegment[]
+	/** 第一条带路径的栈帧，便于展示来源 */
+	readonly primaryCallsite: StackFrame | null
 	constructor(payload: Record<string, unknown>, wire: {
-		requestExpand: (ref: string) => Promise<unknown>
+		requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>
 		supportsAnsi?: boolean
 	})
 	/** 展开后终端 ANSI 串 */
@@ -22,7 +28,7 @@ export declare class WireLogEntry {
 	renderHtml(options?: { indent?: string; maxDepth?: number }): Promise<string>
 	toJSON(): Record<string, unknown>
 	static from(value: unknown, wire: {
-		requestExpand: (ref: string) => Promise<unknown>
+		requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>
 		supportsAnsi?: boolean
 	}): WireLogEntry
 }

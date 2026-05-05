@@ -4,19 +4,12 @@
  * @returns {object} 可 `JSON.stringify` 后经由 WebSocket 发送的扁平条目。
  */
 export function serializeLogEntryForWire(entry) {
-	const callsite = entry.primaryCallsite
 	return {
 		id: entry.id,
 		level: entry.level,
 		method: entry.method,
 		timestamp: entry.timestamp,
 		segments: entry.toSegments(),
-		callsite: callsite ? {
-			functionName: callsite.functionName,
-			filePath: callsite.filePath,
-			line: callsite.line,
-			column: callsite.column,
-			raw: callsite.raw,
-		} : null,
+		stack: entry.stack,
 	}
 }

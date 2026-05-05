@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@steve02081504/virtual-console.svg)](https://www.npmjs.com/package/@steve02081504/virtual-console)
 [![GitHub issues](https://img.shields.io/github/issues/steve02081504/virtual-console)](https://github.com/steve02081504/virtual-console/issues)
 
-Capture and inspect `console` output in tests, UIs, and concurrent work—without replacing `console.log` (or other `console` methods) in your own code.
+Capture and inspect `console` output in tests, UIs, and concurrent work while keeping your existing `console.log` (and other `console` methods) calls unchanged.
 
 ## Install
 
@@ -27,7 +27,7 @@ import { VirtualConsole } from 'https://esm.sh/@steve02081504/virtual-console';
 
 The default entry resolves to the correct Node or browser implementation at runtime, but its TypeScript types are always Node-flavoured. Use `/node` or `/browser` when you want types that strictly match your target (`stdout`/`stderr` levels, `AsyncLocalStorage`, browser scoping caveats, etc.).
 
-The default entry (`.`) only re-exports **`VirtualConsole`**, **`console`**, **`defaultConsole`**, **`consoleAsyncStorage`**, **`globalConsoleAdditionalProperties`**, **`setGlobalConsoleResolver`**, and **`getGlobalConsoleResolver`**. Import **`renderPlain`**, **`renderAnsi`**, **`renderHtml`**, **`WireLogEntry`**, **`newLogEntry`**, **`LogEntry`**, stack/snapshot helpers, and other symbols from **`@steve02081504/virtual-console/node`** or **`@steve02081504/virtual-console/browser`**.
+The default entry (`.`) re-exports **`VirtualConsole`**, **`console`**, **`defaultConsole`**, **`consoleAsyncStorage`**, **`globalConsoleAdditionalProperties`**, **`setGlobalConsoleResolver`**, and **`getGlobalConsoleResolver`**. For **`renderPlain`**, **`renderAnsi`**, **`renderHtml`**, **`WireLogEntry`**, **`newLogEntry`**, **`LogEntry`**, stack/snapshot helpers, and other extended symbols, import from **`@steve02081504/virtual-console/node`** or **`@steve02081504/virtual-console/browser`**.
 
 ### Subpath entrypoints (recommended for tree-shaking)
 
@@ -37,9 +37,9 @@ The default entry (`.`) only re-exports **`VirtualConsole`**, **`console`**, **`
 | `@steve02081504/virtual-console/wire/protocol`            | Log wire `type` constants + `dispatchLogWireMessage`.                                                                                                           |
 | `@steve02081504/virtual-console/wire/server`              | Server-side payload helpers + `createLogWireWebSocketHandler`.                                                                                                  |
 | `@steve02081504/virtual-console/wire/client`              | `connectLogWire` / `attachLogWire`.                                                                                                                             |
-| `@steve02081504/virtual-console/wire/serialize-log-entry` | `serializeLogEntryForWire` only (flat DTO for WebSocket JSON: `segments`, callsite metadata; no raw `args`).                                                    |
+| `@steve02081504/virtual-console/wire/serialize-log-entry` | `serializeLogEntryForWire` only (flat DTO for WebSocket JSON: `segments`, stack metadata; no raw `args`).                                                       |
 
-Import **`serializeLogEntryForWire`** only from **`@steve02081504/virtual-console/wire/serialize-log-entry`**, or compose payloads with **`makeAppendPayload` / `makeSnapshotPayload`** from **`wire/server`**. Wire helpers are not re-exported from the root **`/node`** entry.
+Import **`serializeLogEntryForWire`** from **`@steve02081504/virtual-console/wire/serialize-log-entry`**, or compose payloads with **`makeAppendPayload` / `makeSnapshotPayload`** from **`wire/server`**. Keep wire-related imports on dedicated **`/wire/*`** entrypoints for clearer boundaries and tree-shaken builds.
 
 ## Quick start
 
@@ -272,19 +272,19 @@ Stable `type` strings live on **`logWirePayloadTypes`** (`vc_*`). Custom frames 
 | Client → server (expand request) | `vc_expand_request`            |
 | Client → server (request clear)  | `vc_clear_request`             |
 
-Wire protocol modules are **not** re-exported from **`/node`** or **`/browser`**; import them from **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, **`/wire/client`**, or **`/wire/serialize-log-entry`** for tree-shaken builds.
+Wire protocol modules live on dedicated imports: **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, **`/wire/client`**, and **`/wire/serialize-log-entry`**, which also keep tree-shaken builds focused.
 
-Use **`JSON.parse`** on each inbound text frame, then **`await dispatchLogWireMessage`** (callbacks may be `async`). **`onSnapshot`** receives **`entries`** only; **`onAppend`** receives the **`entry`** object only; **`onClear`** takes no arguments. Use **`extensionHandlers`** for custom `type` values (and **`onUnknown`** as fallback). If you use **`attachLogWire`**, rely on **`requestExpand(ref)`** (Promise) for expand — avoid duplicating **`onExpandResult`** unless you parse frames yourself.
+Use **`JSON.parse`** on each inbound text frame, then **`await dispatchLogWireMessage`** (callbacks may be `async`). **`onSnapshot`** receives **`entries`**, **`onAppend`** receives **`entry`**, and **`onClear`** is a zero-arg callback. Use **`extensionHandlers`** for custom `type` values (with **`onUnknown`** as fallback). If you use **`attachLogWire`**, handle expand flows through **`requestExpand(ref, maxDepth?)`** (Promise); parsing frames manually is optional.
 
 Use **`makeAppendPayload` / `makeSnapshotPayload` / `makeExpandResponse` / `makeExpandErrorResponse`** from **`@steve02081504/virtual-console/wire/server`** when building messages next to `VirtualConsole`.
 
 Use **`parseClientExpandMessage`** / **`parseClientClearMessage`** for low-level frame parsing when you need to branch before full dispatch.
 
-On the server, **`handleClientWireMessage`** handles inbound **`vc_expand_request`** and returns **`vc_expand_result`**. Inbound **`vc_clear_request`** is handled inside **`createLogWireWebSocketHandler`** (not by **`handleClientWireMessage`**).
+On the server, **`handleClientWireMessage`** handles inbound **`vc_expand_request`** and returns **`vc_expand_result`**. When a client includes `maxDepth`, it is normalized to a non-negative integer and passed to your expand handler as `(ref, maxDepth)`. For clear flows, use **`createLogWireWebSocketHandler`**, which processes inbound **`vc_clear_request`** and applies `virtualConsole.clear()`.
 
 For Express/`ws`-style apps, **`createLogWireWebSocketHandler(virtualConsole)`** registers **`addLogEntryListener`** once, **`addClearListener`** once (broadcasts **`vc_log_cleared`** when the host **`clear()`** runs), and handles **`vc_clear_request`** from clients by calling **`virtualConsole.clear()`**.
 
-**`connectLogWire`** / **`attachLogWire`** pass **`WireLogEntry[]`** to **`onSnapshot`**, a single **`WireLogEntry`** to **`onAppend`**, and no arguments to **`onClear`**. Import **`WireLogEntry`** from **`/wire/client`** (or from **`/node`** / **`/browser`**, which re-export the same class). After **`vc_expand_*`** resolves **`truncated`** nodes, **`await entry.renderString()`** (ANSI), **`await entry.renderPlain()`**, and **`await entry.renderHtml()`** render from the payload’s **`segments`**; each render method accepts `{ indent, maxDepth }`. Options include **`supportsAnsi`** (defaults to **`supports-ansi`** detection). The returned client handle also includes **`sendJson(obj)`** (custom uplink), **`requestClear()`** (sends **`vc_clear_request`**), **`close(code, reason)`**, and **`detach()`** (removes listeners and rejects pending `requestExpand` promises with `log_wire_detached`). Low-level **`renderPlain`** / **`renderAnsi`** / **`renderHtml`** (for raw **`LogSegment[]`**) are only exported from **`/node`** or **`/browser`**, not from the default `.` entry.
+**`connectLogWire`** / **`attachLogWire`** pass **`WireLogEntry[]`** to **`onSnapshot`**, a single **`WireLogEntry`** to **`onAppend`**, and use a zero-arg **`onClear`** callback. Import **`WireLogEntry`** from **`/wire/client`** (or from **`/node`** / **`/browser`**, which re-export the same class). After **`vc_expand_*`** resolves **`truncated`** nodes, **`await entry.renderString()`** (ANSI), **`await entry.renderPlain()`**, and **`await entry.renderHtml()`** render from the payload’s **`segments`**; each render method accepts `{ indent, maxDepth }`. Options include **`supportsAnsi`** (defaults to **`supports-ansi`** detection). The returned client handle also includes **`sendJson(obj)`** (custom uplink), **`requestClear()`** (sends **`vc_clear_request`**), **`close(code, reason)`**, and **`detach()`** (removes listeners and rejects pending `requestExpand` promises with `log_wire_detached`). For raw **`LogSegment[]`** rendering, import low-level **`renderPlain`** / **`renderAnsi`** / **`renderHtml`** from **`/node`** or **`/browser`**.
 
 `createLogWireWebSocketHandler(virtualConsole, wireOptions)` also supports server lifecycle hooks:
 
@@ -373,7 +373,7 @@ In the browser, use custom reflection when you need more than one logical “act
 | Export                                                  | Role                                                                                                                                                                                            |
 | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `consoleAsyncStorage`                                   | The `AsyncLocalStorage` instance that drives `hookAsyncContext` isolation. From the main entry it is typed `AsyncLocalStorage<VirtualConsole> \| undefined`; from `/node` it is always present. |
-| `defaultConsole`                                        | The always-on fallback console: passes everything through to the original global `console` without recording                                                                                    |
+| `defaultConsole`                                        | The always-on fallback console: forwards all output directly to the original global `console`                                                                                                   |
 | `console`                                               | The patched global `console` proxy—delegates all calls to whichever `VirtualConsole` is active in the current async context                                                                     |
 | `globalConsoleAdditionalProperties`                     | Plain object merged onto the proxy on every access—assign properties here to extend `globalThis.console` without patching the proxy itself                                                      |
 | `setGlobalConsoleResolver` / `getGlobalConsoleResolver` | Replace or read the three routing callbacks that control how the proxy resolves the active instance                                                                                             |
@@ -385,8 +385,8 @@ In the browser, use custom reflection when you need more than one logical “act
 | ------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Async isolation                             | `AsyncLocalStorage`; all child async work is captured          | Save/restore swap; macro-tasks spawned inside `hookAsyncContext(fn)` (bare `setTimeout`, etc.) may escape |
 | No-arg `hookAsyncContext()`                 | `enterWith` — scopes to the current async context              | Sets a global module variable — affects all subsequent code                                               |
-| `process.stdout` / `process.stderr` capture | Yes; writes are captured as `stdout`/`stderr` level entries    | Not available                                                                                             |
-| `freshLine` overwrite                       | Yes, on ANSI-capable TTYs                                      | No; behaves like a normal `log` call                                                                      |
+| `process.stdout` / `process.stderr` capture | Yes; writes are captured as `stdout`/`stderr` level entries    | Browser logging uses standard console method capture (`log`/`info`/`warn`/`error`/`debug`)                |
+| `freshLine` overwrite                       | Yes, on ANSI-capable TTYs                                      | Browser treats `freshLine` as regular line-by-line logging                                                |
 | `writeAs` with `realConsoleOutput: true`    | Routes warn/error/trace-style levels to stderr, rest to stdout | Only forwards when `baseConsole` is also a `VirtualConsole`                                               |
 | `supportsAnsi` default                      | Auto-detected via `supports-ansi` package                      | `!!globalThis.chrome`                                                                                     |
 

@@ -23,7 +23,7 @@ export declare function connectLogWire(
 ): {
 	ws: WebSocket
 	close: (code?: number, reason?: string) => void
-	requestExpand: (ref: string) => Promise<unknown>
+	requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>
 	requestClear: () => boolean
 	sendJson: (obj: object) => boolean
 	detach: () => void
@@ -35,7 +35,7 @@ export declare function attachLogWire(
 ): {
 	ws: WebSocket
 	close: (code?: number, reason?: string) => void
-	requestExpand: (ref: string) => Promise<unknown>
+	requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>
 	requestClear: () => boolean
 	sendJson: (obj: object) => boolean
 	detach: () => void

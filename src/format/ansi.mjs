@@ -1,5 +1,6 @@
-import { pathToFileURL } from '../core/stack.mjs'
 import { ansiToHtml } from '@steve02081504/ansi2html'
+
+import { pathToFileURL } from '../core/stack.mjs'
 
 /** CSI「ESC [ … 最终字节」及常见两字节 ESC 序列（OSC 已由上文单独处理） */
 const CSI_REGEX = /\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g

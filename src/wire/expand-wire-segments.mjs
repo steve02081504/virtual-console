@@ -4,15 +4,35 @@
 
 /**
  * @param {unknown} snap - `ArgSnapshot` 子树。
- * @param {Set<string>} refs - 收集到的非空 ref。
+ * @param {Map<string, number>} refsToMinDepth - ref 到最浅深度映射（相对当前快照根）。
+ * @param {number} depth - 当前节点深度。
  * @returns {void} 仅副作用写入 `refs`。
  */
-function collectTruncatedRefsInSnapshot(snap, refs) {
+function collectTruncatedRefsInSnapshot(snap, refsToMinDepth, depth) {
 	if (snap === null || typeof snap !== 'object') return
-	if (snap.kind === 'truncated' && snap.ref)
-		refs.add(snap.ref)
-	for (const value of Object.values(snap))
-		collectTruncatedRefsInSnapshot(value, refs)
+	if (snap.kind === 'truncated' && snap.ref) {
+		const existed = refsToMinDepth.get(snap.ref)
+		if (existed === undefined || depth < existed)
+			refsToMinDepth.set(snap.ref, depth)
+		return
+	}
+
+	const kind = typeof snap.kind === 'string' ? snap.kind : ''
+	if (kind === 'array' || kind === 'Set') {
+		for (const item of Array.isArray(snap.items) ? snap.items : [])
+			collectTruncatedRefsInSnapshot(item, refsToMinDepth, depth + 1)
+		return
+	}
+	if (kind === 'Map') {
+		for (const item of Array.isArray(snap.items) ? snap.items : []) {
+			collectTruncatedRefsInSnapshot(item?.key, refsToMinDepth, depth + 1)
+			collectTruncatedRefsInSnapshot(item?.value, refsToMinDepth, depth + 1)
+		}
+		return
+	}
+	if (Array.isArray(snap.entries))
+		for (const entry of snap.entries)
+			collectTruncatedRefsInSnapshot(entry?.value, refsToMinDepth, depth + 1)
 }
 
 /**
@@ -64,10 +84,22 @@ function* iterSegmentSnapshotSlots(segments) {
  */
 export function collectTruncatedRefsFromSegments(segments) {
 	const refs = new Set()
-	for (const slot of iterSegmentSnapshotSlots(segments))
-		collectTruncatedRefsInSnapshot(slot.get(), refs)
+	for (const [ref] of collectTruncatedRefsWithDepthFromSegments(segments))
+		refs.add(ref)
 
 	return refs
+}
+
+/**
+ * @param {import('../shared.d.mts').LogSegment[]} segments - 片段数组。
+ * @returns {Map<string, number>} 需要展开的 ref 及其在快照中的最浅深度（相对片段快照根）。
+ */
+export function collectTruncatedRefsWithDepthFromSegments(segments) {
+	/** @type {Map<string, number>} */
+	const refsToMinDepth = new Map()
+	for (const slot of iterSegmentSnapshotSlots(segments))
+		collectTruncatedRefsInSnapshot(slot.get(), refsToMinDepth, 0)
+	return refsToMinDepth
 }
 
 /**

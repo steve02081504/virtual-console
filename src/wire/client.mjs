@@ -34,7 +34,7 @@ const defaultSupportsAnsi = supportsAnsi
  * 打开 WebSocket 并在其上绑定 {@link attachLogWire}。
  * @param {string | URL} url - `wss://` 或 `ws://` 端点。
  * @param {LogWireClientHandlers & { protocols?: string|string[] }} [options] - 帧解析回调；可选 `protocols` 传给浏览器 `WebSocket` 构造函数。
- * @returns {{ ws: WebSocket, close: (code?: number, reason?: string) => void, requestExpand: (ref: string) => Promise<unknown>, requestClear: () => boolean, sendJson: (obj: object) => boolean, detach: () => void }} 连接句柄与控制方法。
+ * @returns {{ ws: WebSocket, close: (code?: number, reason?: string) => void, requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>, requestClear: () => boolean, sendJson: (obj: object) => boolean, detach: () => void }} 连接句柄与控制方法。
  */
 export function connectLogWire(url, options = {}) {
 	const { protocols, ...handlers } = options
@@ -46,7 +46,7 @@ export function connectLogWire(url, options = {}) {
  * 在已有 WebSocket 上绑定协议分发（适用于共享连接、或自定义握手后再传入）。
  * @param {WebSocket} ws - 已处于或即将处于 OPEN 的套接字。
  * @param {LogWireClientHandlers} [handlers] - 各类下行消息的回调；未提供的类型将被忽略。
- * @returns {{ ws: WebSocket, close: (code?: number, reason?: string) => void, requestExpand: (ref: string) => Promise<unknown>, requestClear: () => boolean, sendJson: (obj: object) => boolean, detach: () => void }} 同一引用上的便捷封装。
+ * @returns {{ ws: WebSocket, close: (code?: number, reason?: string) => void, requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>, requestClear: () => boolean, sendJson: (obj: object) => boolean, detach: () => void }} 同一引用上的便捷封装。
  */
 export function attachLogWire(ws, {
 	onSnapshot,
@@ -96,12 +96,20 @@ export function attachLogWire(ws, {
 	/**
 	 * 发送展开请求并等待同 ref 的应答（由内部 `pendingExpands` 兑现）。
 	 * @param {string} ref - 与快照中 `truncated.ref` 一致。
+	 * @param {number} [maxDepth] - 期望展开的最大深度；无效值将被忽略。
 	 * @returns {Promise<unknown>} resolve 为快照对象；失败 reject。
 	 */
-	function requestExpand(ref) {
+	function requestExpand(ref, maxDepth) {
+		const normalizedMaxDepth = Number.isFinite(maxDepth)
+			? Math.max(0, Math.floor(maxDepth))
+			: undefined
 		return new Promise((resolve, reject) => {
 			pendingExpands.set(ref, { resolve, reject })
-			ws.send(JSON.stringify({ type: logWirePayloadTypes.EXPAND_REQUEST, ref }))
+			ws.send(JSON.stringify({
+				type: logWirePayloadTypes.EXPAND_REQUEST,
+				ref,
+				...normalizedMaxDepth !== undefined ? { maxDepth: normalizedMaxDepth } : {},
+			}))
 		})
 	}
 

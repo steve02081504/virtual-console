@@ -34,7 +34,13 @@ export function handleClientWireMessage(parsed, handlers = {}) {
 	const { ref } = message
 	if (typeof ref !== 'string')
 		return null
-	const expandResult = expandFn(ref)
+	const rawMaxDepth = message.maxDepth
+	const maxDepth = Number.isFinite(rawMaxDepth)
+		? Math.max(0, Math.floor(rawMaxDepth))
+		: undefined
+	const expandResult = maxDepth !== undefined
+		? expandFn(ref, maxDepth)
+		: expandFn(ref)
 	if (expandResult.ok)
 		return {
 			type: logWirePayloadTypes.EXPAND_RESULT,
