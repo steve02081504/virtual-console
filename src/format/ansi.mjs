@@ -1,8 +1,5 @@
-import { AnsiUp } from 'ansi_up'
-
 import { pathToFileURL } from '../core/stack.mjs'
-
-const ansiUp = new AnsiUp()
+import { ansiToHtml } from '@steve02081504/ansi2html'
 
 /** CSI「ESC [ … 最终字节」及常见两字节 ESC 序列（OSC 已由上文单独处理） */
 const CSI_REGEX = /\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g
@@ -57,15 +54,6 @@ export function stripOscTitleSequences(text) {
  * @returns {string} OSC8 仅保留可见标签文本；CSI 与其它控制符移除。
  */
 export function stripTerminalDecorations(text) {
-	return stripAllTerminalEscapes(text)
-}
-
-/**
- * 合并 OSC/CSI/控制符剥离（供 {@link stripTerminalDecorations} 与 `renderAnsi` 在 `colorize:false` 时复用）。
- * @param {string} text - 原始文本。
- * @returns {string} 无转义可见串。
- */
-function stripAllTerminalEscapes(text) {
 	let plain = stripOscTitleSequences(String(text || ''))
 	plain = plain.replace(OSC8_REGEX, (m, h, label) => String(label || ''))
 	plain = plain.replace(OSC8_C1_REGEX, (m, h, label) => String(label || ''))
@@ -103,36 +91,12 @@ export function traceStackFrameAnsi(frame) {
 }
 
 /**
- * 终端文本块 → HTML：剥标题 OSC，OSC8→锚点，再经 AnsiUp；字面换行展开为 `<br/>`（供片段 HTML 渲染 / 流式条目使用）。
+ * 终端文本块 → HTML：剥标题 OSC，解析 OSC8 锚点与 ANSI SGR（供片段 HTML 渲染 / 流式条目使用）。
  * @param {string} chunk - 原始片段。
  * @returns {string} 已转义且可安全插入 DOM 的 HTML 字符串。
  */
 export function terminalChunkToHtml(chunk) {
-	const cleaned = stripOscTitleSequences(chunk)
-	let index = 0
-	const placeholders = []
-	/**
-	 * `String.replace` 回调：把 OSC8 超链接替换为占位 token，最后再还原成 `<a>`。
-	 * @param {string} match - 完整匹配串。
-	 * @param {string} href - 链接 URL。
-	 * @param {string} label - 链接可见文本（可含 ANSI）。
-	 * @returns {string} 占位 token，后续替换为 HTML。
-	 */
-	const replaceLink = (match, href, label) => {
-		const token = `__OSC8_${index++}__`
-		const labelInner = ansiUp.ansi_to_html(String(label || ''))
-		const hrefAttr = escapeHtml(String(href || ''))
-		placeholders.push({
-			token,
-			html: `<a href="${hrefAttr}" target="_blank" rel="noopener noreferrer" style="color:inherit">${labelInner}</a>`,
-		})
-		return token
-	}
-	const textWithPlaceholders = cleaned.replace(OSC8_REGEX, replaceLink).replace(OSC8_C1_REGEX, replaceLink)
-	let html = ansiUp.ansi_to_html(textWithPlaceholders)
-	for (const { token, html: linkHtml } of placeholders)
-		html = html.replaceAll(token, linkHtml)
-	return html.replaceAll('\n', '<br/>\n')
+	return ansiToHtml(stripOscTitleSequences(chunk))
 }
 
 /**

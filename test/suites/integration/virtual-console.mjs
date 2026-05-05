@@ -80,7 +80,7 @@ async function testOutputEntries() {
 	assert(typeof vc.outputEntries[0].timestamp === 'number', 'timestamp 是数字')
 	assert(vc.outputEntries[0].timestamp <= Date.now(), 'timestamp 合理')
 	assertIncludes(vc.outputEntries[0].toString(), 'hello', 'logEntry.toString() 正确')
-	assertIncludes(vc.outputEntries[1].toHtml(), 'a warning', 'logEntry.toHtml() 正确')
+	assertIncludes(vc.outputEntries[1].toHtml(), 'a&nbsp;warning', 'logEntry.toHtml() 正确')
 	assertIncludes(vc.outputs, 'hello', 'outputs getter 正确聚合内容')
 	assertIncludes(vc.outputs, 'a warning', 'outputs 包含所有日志')
 }
