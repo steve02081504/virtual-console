@@ -4,7 +4,6 @@ import type { LogSegment, StackFrame } from '../shared.d.mts'
  * 线路 JSON 载荷包装：仅 wire 侧提供异步 `render*`；展开 `truncated` 后与进程内 {@link LogEntry} 的 `toString` / `toPlainText` / `toHtml` 对齐（由 `segments` 渲染；无片段则空串）。
  */
 export declare class WireLogEntry {
-	readonly id: number | undefined
 	readonly level: string | undefined
 	readonly method: string | undefined
 	readonly timestamp: number | undefined

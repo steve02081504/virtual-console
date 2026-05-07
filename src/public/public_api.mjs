@@ -20,13 +20,12 @@ export {
 } from '../core/stack.mjs'
 
 /**
- * 参数快照序列化、惰性展开、`ExpansionScope` 与条目参数访问。
+ * 参数快照序列化、惰性展开与 `ExpansionScope`。
  */
 export {
 	serializeArgSnapshot,
 	expandSnapshotRef,
 	DEFAULT_SNAPSHOT_DEPTH,
-	getLogEntryArgs,
 	createExpansionScope,
 } from '../core/snapshot.mjs'
 

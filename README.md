@@ -207,6 +207,7 @@ vc.addLogEntryListener(onEntry);
 - **`outputEntries`** — Array of captured `LogEntry` objects. Each entry exposes:
   - `level` — semantic level string after routing (`'log'`, `'warn'`, `'error'`, `'debug'`, etc.). Note: `console.trace()` and `writeAs('trace', …)` map to **`debug`** (see [Log levels](#log-levels)); use `method === 'trace'` to recognize trace-shaped entries.
   - `method` — originating console/stream method name (`'log'`, `'trace'`, `'dir'`, `'stdout'`, …). Useful when `level` alone is ambiguous (e.g. `dir` → level `log`).
+  - `args` — original captured arguments in-process (`stdout` / `stderr` entries store a single-element text array)
   - `timestamp` — Unix timestamp in milliseconds when the entry was recorded
   - `stack` — parsed call-stack frames, each with `functionName`, `filePath`, `line`, `column`, and `raw`
   - `serializeArgs()` — JSON-serializable snapshots of the original arguments (depth-limited)
@@ -315,7 +316,7 @@ Use `/node` or `/browser` for the strictest type match with your target environm
 
 | Type                    | Description                                                                                                                                                                                         |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LogEntry`              | Single log entry with `level`, `method`, `timestamp`, `stack`, `serializeArgs()`, `toSegments()`; sync **`toString()`** (ANSI), **`toPlainText()`**, **`toHtml()`**                                 |
+| `LogEntry`              | Single log entry with `level`, `method`, `args`, `timestamp`, `stack`, `serializeArgs()`, `toSegments()`; sync **`toString()`** (ANSI), **`toPlainText()`**, **`toHtml()`**                         |
 | `WireLogEntry`          | Wire-side view of a JSON payload: async **`renderString()`** / **`renderPlain()`** / **`renderHtml()`** after `truncated` expansion; import from **`/wire/client`** or **`/node`** / **`/browser`** |
 | `CapturedLogLevel`      | Normalized semantic `entry.level` after routing (extends built-in levels with custom strings when needed)                                                                                           |
 | `WriteAsLevelArg`       | Method-style names accepted before routing (`trace`, `dir`, `stdout`, `stderr`, …)                                                                                                                  |

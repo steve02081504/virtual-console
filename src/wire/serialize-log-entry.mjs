@@ -5,7 +5,6 @@
  */
 export function serializeLogEntryForWire(entry) {
 	return {
-		id: entry.id,
 		level: entry.level,
 		method: entry.method,
 		timestamp: entry.timestamp,

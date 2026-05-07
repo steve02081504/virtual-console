@@ -1,6 +1,5 @@
 import {
 	VirtualConsole,
-	getLogEntryArgs,
 	renderAnsi,
 	renderPlain,
 } from '@steve02081504/virtual-console'
@@ -20,7 +19,7 @@ async function testSupportsAnsiVcLogComplexObject() {
 
 	assertEqual(vc.outputEntries.length, 1, '捕获一条日志')
 	assert(vc.outputEntries[0].supportsAnsi === true, '条目 supportsAnsi')
-	assert(getLogEntryArgs(vc.outputEntries[0])[0] === obj, '参数引用一致')
+	assert(vc.outputEntries[0].args[0] === obj, '参数引用一致')
 	assertEqual(vc.outputs, renderAnsi(vc.outputEntries[0].toSegments(), { colorize: true }), 'outputs 与 toSegments→renderAnsi（换行在片段内）一致')
 }
 
@@ -76,7 +75,7 @@ async function testOutputEntries() {
 	assertEqual(vc.outputEntries[2].level, 'error', '第3条为 error 级别')
 	assertEqual(vc.outputEntries[3].level, 'info', '第4条为 info 级别')
 	assertEqual(vc.outputEntries[4].level, 'debug', '第5条为 debug 级别')
-	assert(getLogEntryArgs(vc.outputEntries[0])[0] === 'hello', '第1条捕获参数正确')
+	assert(vc.outputEntries[0].args[0] === 'hello', '第1条捕获参数正确')
 	assert(typeof vc.outputEntries[0].timestamp === 'number', 'timestamp 是数字')
 	assert(vc.outputEntries[0].timestamp <= Date.now(), 'timestamp 合理')
 	assertIncludes(vc.outputEntries[0].toString(), 'hello', 'logEntry.toString() 正确')
@@ -114,9 +113,9 @@ async function testMaxLogEntries() {
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false, maxLogEntries: 3 })
 	await vc.hookAsyncContext(() => { console.log('msg1'); console.log('msg2'); console.log('msg3'); console.log('msg4'); console.log('msg5') })
 	assertEqual(vc.outputEntries.length, 3, 'maxLogEntries=3 时只保留最新3条')
-	assert(getLogEntryArgs(vc.outputEntries[0])[0] === 'msg3', '第1条保留 msg3')
-	assert(getLogEntryArgs(vc.outputEntries[1])[0] === 'msg4', '第2条保留 msg4')
-	assert(getLogEntryArgs(vc.outputEntries[2])[0] === 'msg5', '第3条保留 msg5')
+	assert(vc.outputEntries[0].args[0] === 'msg3', '第1条保留 msg3')
+	assert(vc.outputEntries[1].args[0] === 'msg4', '第2条保留 msg4')
+	assert(vc.outputEntries[2].args[0] === 'msg5', '第3条保留 msg5')
 }
 
 /**
@@ -160,7 +159,7 @@ async function testGlobalConsoleProxy() {
 		console.addLogEntryListener(onLog); console.log('proxy-listener-msg'); console.removeLogEntryListener(onLog); console.log('after-remove')
 	})
 	assertEqual(logCalls, 1, '通过 Proxy 注册的 addLogEntryListener 只在前一条日志时触发')
-	assert(seenEntries.length === 1 && getLogEntryArgs(seenEntries[0])[0] === 'proxy-listener-msg', '回调收到正确条目')
+	assert(seenEntries.length === 1 && seenEntries[0].args[0] === 'proxy-listener-msg', '回调收到正确条目')
 	let clearCount = 0
 	/**
 	 * 记录 clear 回调触发次数。

@@ -9,7 +9,6 @@ import {
 
 /**
  * @typedef {object} WireLogEntryPayload
- * @property {number} [id]
  * @property {string} [level]
  * @property {string} [method]
  * @property {number} [timestamp]
@@ -41,7 +40,6 @@ export class WireLogEntry {
 	 * @param {WireContext} wire - 展开与 ANSI 开关。
 	 */
 	constructor(payload, wire) {
-		this.id = payload.id
 		this.level = payload.level
 		this.method = payload.method
 		this.timestamp = payload.timestamp
@@ -161,7 +159,6 @@ export class WireLogEntry {
 	 */
 	toJSON() {
 		return {
-			id: this.id,
 			level: this.level,
 			method: this.method,
 			timestamp: this.timestamp,

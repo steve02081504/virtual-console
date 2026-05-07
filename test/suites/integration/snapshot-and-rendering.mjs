@@ -2,7 +2,7 @@ import util from 'node:util'
 import vm from 'node:vm'
 
 import {
-	LogEntry,
+	newLogEntry,
 	VirtualConsole,
 	DEFAULT_SNAPSHOT_DEPTH,
 	buildArgsSegments,
@@ -69,7 +69,7 @@ function testRenderPrintfPlain() {
 	const errResult = renderPrintfPlain([err])
 	assertIncludes(errResult, 'Error: virtual-console printf edge-case error', 'Error 参数格式化结果包含错误类型与消息')
 	assertIncludes(errResult, 'at ', 'Error 参数格式化结果包含堆栈信息')
-	const traceEntry = new LogEntry({
+	const traceEntry = newLogEntry({
 		method: 'trace',
 		args: ['trace label'],
 		stack: [{ functionName: 'testFormatArgs', filePath: 'test.mjs', line: 250, column: 10, raw: '    at testFormatArgs (test.mjs:250:10)' }],

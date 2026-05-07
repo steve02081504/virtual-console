@@ -77,12 +77,12 @@ export type LogSegment =
 
 /** 单条日志条目接口 */
 export interface LogEntry {
-	/** 进程内稳定递增 id（含流式条目） */
-	readonly id: number
 	/** 经 `methodNameToLevel` 归一化后的语义级别 */
 	level: CapturedLogLevel
 	/** 对应的 console / 流方法名（如 `log`、`trace`、Node 下 `stdout`） */
 	method: string
+	/** 原始参数数组（`stdout` / `stderr` 条目为单元素文本数组） */
+	readonly args: unknown[]
 	/** 调用栈帧数组（两端均支持） */
 	stack: StackFrame[]
 	/** 日志记录时的 Unix 时间戳（毫秒） */
@@ -160,8 +160,6 @@ export declare function expandSnapshotRef(
 	ref: string,
 	maxDepth?: number
 ): { ok: true; snapshot: ArgSnapshot } | { ok: false; error: string }
-
-export declare function getLogEntryArgs(entry: object): unknown[]
 
 export declare function getStackInfo(leadingLinesToSkip?: number): StackFrame[]
 export declare function parseErrorStack(error: unknown, skipNum?: number): StackFrame[]

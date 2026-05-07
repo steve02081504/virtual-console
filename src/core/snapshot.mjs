@@ -14,12 +14,6 @@ await import('node:util/types').then(module => {
 export const DEFAULT_SNAPSHOT_DEPTH = 5
 
 /**
- * `LogEntry` 实例 → 原始参数数组。
- * @type {WeakMap<object, unknown[]>}
- */
-const logEntryArgs = new WeakMap()
-
-/**
  * 惰性展开 ref → 弱引用条目与强引用截断对象。
  * @type {Map<string, { weakEntryRef: WeakRef<object>, strongTarget: object }>}
  */
@@ -40,26 +34,6 @@ const expandEntryFinalizer = new FinalizationRegistry((refs) => {
 	for (const ref of refs)
 		expandRegistry.delete(ref)
 })
-
-/**
- * 将原始 `console` 参数关联到条目（WeakMap）。
- * @param {object} entry - 目标 `LogEntry` 实例。
- * @param {unknown[]} args - 与 `console.*` 调用完全一致的参数数组。
- * @returns {void}
- */
-export function setLogEntryArgs(entry, args) {
-	logEntryArgs.set(entry, args)
-}
-
-/**
- * 进程内读取捕获参数（惰性展开用；不进入 JSON 线路）。
- * 须已通过 {@link setLogEntryArgs} 绑定；无绑定则返回空数组（流式条目由构造器写入）。
- * @param {object} entry - {@link LogEntry} 实例。
- * @returns {unknown[]} 与 `console` 调用一致的参数列表；无绑定时为空数组。
- */
-export function getLogEntryArgs(entry) {
-	return logEntryArgs.get(entry) ?? []
-}
 
 /**
  * 为深度截断处的对象注册惰性展开槽位。

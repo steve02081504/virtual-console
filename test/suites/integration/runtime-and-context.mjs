@@ -1,6 +1,5 @@
 import {
 	VirtualConsole,
-	getLogEntryArgs,
 	getStackInfo,
 } from '@steve02081504/virtual-console'
 
@@ -35,9 +34,9 @@ async function testContextIsolation() {
 
 	assertEqual(vc1.outputEntries.length, 2, 'vc1 捕获了2条（vc2 上下文中的不计入）')
 	assertEqual(vc2.outputEntries.length, 1, 'vc2 只捕获了自己上下文中的1条')
-	assert(getLogEntryArgs(vc1.outputEntries[0])[0] === 'from vc1', 'vc1 第1条内容正确')
-	assert(getLogEntryArgs(vc2.outputEntries[0])[0] === 'from vc2', 'vc2 第1条内容正确')
-	assert(getLogEntryArgs(vc1.outputEntries[1])[0] === 'back to vc1', 'vc1 第2条内容正确')
+	assert(vc1.outputEntries[0].args[0] === 'from vc1', 'vc1 第1条内容正确')
+	assert(vc2.outputEntries[0].args[0] === 'from vc2', 'vc2 第1条内容正确')
+	assert(vc1.outputEntries[1].args[0] === 'back to vc1', 'vc1 第2条内容正确')
 }
 
 /**
@@ -68,10 +67,10 @@ async function testConcurrentAsyncIsolation() {
 
 	assertEqual(vcA.outputEntries.length, 2, 'vcA 捕获了2条日志')
 	assertEqual(vcB.outputEntries.length, 2, 'vcB 捕获了2条日志')
-	assert(getLogEntryArgs(vcA.outputEntries[0])[0] === 'Starting task A', 'vcA 第1条内容正确')
-	assert(getLogEntryArgs(vcA.outputEntries[1])[0] === 'Finished task A', 'vcA 第2条内容正确')
-	assert(getLogEntryArgs(vcB.outputEntries[0])[0] === 'Starting task B', 'vcB 第1条内容正确')
-	assert(getLogEntryArgs(vcB.outputEntries[1])[0] === 'Finished task B', 'vcB 第2条内容正确')
+	assert(vcA.outputEntries[0].args[0] === 'Starting task A', 'vcA 第1条内容正确')
+	assert(vcA.outputEntries[1].args[0] === 'Finished task A', 'vcA 第2条内容正确')
+	assert(vcB.outputEntries[0].args[0] === 'Starting task B', 'vcB 第1条内容正确')
+	assert(vcB.outputEntries[1].args[0] === 'Finished task B', 'vcB 第2条内容正确')
 }
 
 /**
