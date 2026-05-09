@@ -52,28 +52,33 @@ export interface ArgSnapshotTruncated {
 
 /**
  * `serializeArgSnapshot` / `toSegments` 产生的 JSON 可传输快照（含 `truncated`）。
- * `kind: 'Error'` 时含 **`name`**、**`message`**、**`stack`**（由 `parseErrorStack(error, 0)` 得到的帧数组，平铺字段与 {@link StackFrame} 一致；**不**存原始 `error.stack` 字符串）；另有 **`entries`** 承载其它自有枚举属性。
+ * `kind: 'Error'` 时含 **`name`**、**`message`**、**`stack`**（由 `parseErrorStack(error)` 得到的帧数组，平铺字段与 {@link StackFrame} 一致；**不**存原始 `error.stack` 字符串）；另有 **`entries`** 承载其它自有枚举属性。
  */
 export type ArgSnapshot = Record<string, unknown> | ArgSnapshotTruncated
 
 /**
  * 结构化日志片段（与 `LogEntry#toSegments()` 一致，可 JSON 传输）
  */
-/** `dir` / `console.dir` 的 `value` 段可选：`depth`、`colors` 等（与参数快照同源序列化） */
-export type DirOptionsSnapshot = ArgSnapshot
+/** `console.dir` 第二参数的 JSON 可传输子集（与 Node `util.inspect` 选项名对齐）。 */
+export interface DirOptionsPayload {
+	/** 对象展开深度 */
+	depth?: number
+	/** 是否着色（对应渲染管线中的 `colorize`） */
+	colors?: boolean
+}
 
 /**
  * 结构化日志片段：仅 `text` / `css` / `value` / `trace` 四类（可 JSON 传输）。
  * - `text`：原始终端字节串（可含 CSI/OSC8）；换行用 `\n` 字符表达。
  * - `css`：`%c` 样式串；`renderAnsi` 映射颜色（真彩色）、粗/斜/划/删、`opacity`/`lighter`/半透明色等（含 SGR dim）；HTML 侧用 `span` 作用域。
  * - `value`：`ArgSnapshot` 树，渲染时格式化为 plain/ANSI/HTML（不再预烘焙 `ansiText`）。
- * - `trace`：栈帧列表的快照树（与 {@link StackFrame} 序列化形状一致）。
+ * - `trace`：已解析的 {@link StackFrame} 数组（与 `LogEntry#stack` 同源，不再嵌套 ArgSnapshot）。
  */
 export type LogSegment =
 	| { kind: 'text'; text: string }
 	| { kind: 'css'; css: string }
-	| { kind: 'value'; snapshot: ArgSnapshot; dirOptions?: DirOptionsSnapshot }
-	| { kind: 'trace'; snapshot: ArgSnapshot }
+	| { kind: 'value'; snapshot: ArgSnapshot; dirOptions?: DirOptionsPayload }
+	| { kind: 'trace'; stack: StackFrame[] }
 
 /** 单条日志条目接口 */
 export interface LogEntry {
@@ -83,6 +88,8 @@ export interface LogEntry {
 	method: string
 	/** 原始参数数组（`stdout` / `stderr` 条目为单元素文本数组） */
 	readonly args: unknown[]
+	/** `freshLine` 主 id（非 freshLine 条目可为空） */
+	readonly id?: string
 	/** 调用栈帧数组（两端均支持） */
 	stack: StackFrame[]
 	/** 日志记录时的 Unix 时间戳（毫秒） */
@@ -92,7 +99,7 @@ export interface LogEntry {
 	/** 宿主是否允许 ANSI（影响 `value`/`trace` 等着色与 OSC8） */
 	supportsAnsi: boolean
 	/** Node `stdout`/`stderr`：合并后的原始流文本；非流条目无此字段 */
-	streamText?: string
+	text?: string
 	/** 终端 ANSI 串（流条目为原始合并文本） */
 	toString(): string
 	/** 无 ANSI 的纯文本 */
@@ -103,6 +110,8 @@ export interface LogEntry {
 	serializeArgs(maxDepth?: number): ArgSnapshot[]
 	/** 结构化片段，便于前端按需映射 DOM */
 	toSegments(): LogSegment[]
+	/** JSON 传输视图（默认与 wire 载荷字段对齐） */
+	toJSON(): Record<string, unknown>
 }
 
 /** 按宿主环境细分的日志条目（覆盖 `level` 联合） */
@@ -167,10 +176,13 @@ export declare function trimLeadingRuntimeInternalFrames(frames: StackFrame[]): 
 
 export declare function newLogEntry(options: object): LogEntry
 
-export declare function renderPlain(segments: LogSegment[]): string
+export declare function renderPlain(
+	segments: LogSegment[],
+	options?: { indent?: string; maxDepth?: number }
+): string
 export declare function renderAnsi(
 	segments: LogSegment[],
-	options?: { colorize?: boolean; omitPrintfCss?: boolean }
+	options?: { colorize?: boolean; omitPrintfCss?: boolean; indent?: string; maxDepth?: number }
 ): string
 export declare function renderHtml(segments: LogSegment[], options?: Record<string, unknown>): string
 

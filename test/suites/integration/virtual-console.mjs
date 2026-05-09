@@ -97,6 +97,8 @@ async function testConsoleDir() {
 	assertEqual(dirEntry.level, 'log', '语义级别为 log')
 	const dirSegments = dirEntry.toSegments()
 	assert(dirSegments.length === 2 && dirSegments[0].kind === 'value' && 'snapshot' in dirSegments[0] && dirSegments[1].kind === 'text' && /** @type {{ text: string }} */ dirSegments[1].text === '\n', 'dir：单 value 段 + 尾换行 text')
+	const valueSeg = /** @type {{ kind: 'value'; dirOptions?: { depth?: number } }} */ dirSegments[0]
+	assertEqual(valueSeg.dirOptions?.depth, 3, 'dirOptions 为浅层 depth，非 ArgSnapshot')
 	const ansiFromSegments = renderAnsi(dirSegments, { colorize: dirEntry.supportsAnsi })
 	assertEqual(ansiFromSegments, dirEntry.toString(), 'dir：`renderAnsi(toSegments())` 必须与 `toString()` 一致')
 	assertEqual(renderPlain(dirSegments), dirEntry.toPlainText(), 'dir：`renderPlain(toSegments())` 必须与 `toPlainText()` 一致')

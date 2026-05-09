@@ -16,11 +16,6 @@ const OSC8_LINK_START = '\x1b]8;;'
 const OSC8_LINK_SEP = '\x07'
 const OSC8_LINK_END = '\x1b]8;;\x07'
 
-/**
- * 转义 HTML 字符
- * @param {string} str - 要转义的字符串。
- * @returns {string} 转义后的字符串。
- */
 /** @type {Record<string, string>} */
 const HTML_ESCAPES = {
 	'&': '&amp;',
@@ -55,16 +50,15 @@ export function stripOscTitleSequences(text) {
  * @returns {string} OSC8 仅保留可见标签文本；CSI 与其它控制符移除。
  */
 export function stripTerminalDecorations(text) {
-	let plain = stripOscTitleSequences(String(text || ''))
-	plain = plain.replace(OSC8_REGEX, (m, h, label) => String(label || ''))
-	plain = plain.replace(OSC8_C1_REGEX, (m, h, label) => String(label || ''))
-	plain = plain.replace(/\u001B][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '')
-	plain = plain.replace(/\u009D[^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '')
-	plain = plain.replace(CSI_REGEX, '')
-	plain = plain.replace(ESC_SIMPLE_REGEX, '')
-	plain = plain.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '')
-	plain = plain.replace(/[\u200B-\u200D\uFEFF]/g, '')
-	return plain
+	return stripOscTitleSequences(text)
+		.replace(OSC8_REGEX, (m, h, label) => String(label || ''))
+		.replace(OSC8_C1_REGEX, (m, h, label) => String(label || ''))
+		.replace(/\u001B][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '')
+		.replace(/\u009D[^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '')
+		.replace(CSI_REGEX, '')
+		.replace(ESC_SIMPLE_REGEX, '')
+		.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '')
+		.replace(/[\u200B-\u200D\uFEFF]/g, '')
 }
 
 /**
@@ -85,8 +79,7 @@ export function ansiHyperlink(href, visibleText = '') {
  * @returns {string} 含或不含 OSC 8 的单行文本。
  */
 export function traceStackFrameAnsi(frame) {
-	if (!frame.filePath || !(frame.line > 0))
-		return frame.raw
+	if (!frame.filePath || !(frame.line > 0)) return frame.raw
 	const href = `${pathToFileURL(frame.filePath)}:${frame.line}:${frame.column}`
 	return ansiHyperlink(href, frame.raw)
 }

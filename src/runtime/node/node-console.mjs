@@ -377,13 +377,20 @@ export class VirtualConsole extends Console {
 	 * @param {...any} args - 要打印的内容。
 	 */
 	freshLine(id, ...args) {
+		this.#addEntry('freshLine', [id, ...args])
+		const previousRecordOutput = this.options.recordOutput
 		try {
+			this.options.recordOutput = false
 			this.stackFrameSkipCount++ // freshLine 自身是额外一层，由 log wrapper 统一处理其余帧
-			if (this.options.supportsAnsi && this.#lastFreshLineId === id)
-				this._stdout.write(ansiEscapes.cursorUp(1) + ansiEscapes.eraseLine)
-			this.log(...args)
+			if (this.#baseConsole instanceof VirtualConsole) this.#baseConsole.freshLine(id, ...args)
+			else {
+				if (this.options.supportsAnsi && this.#lastFreshLineId === id)
+					this._stdout.write(ansiEscapes.cursorUp(1) + ansiEscapes.eraseLine)
+				this.log(...args)
+			}
 		} finally {
 			this.stackFrameSkipCount--
+			this.options.recordOutput = previousRecordOutput
 		}
 		this.#lastFreshLineId = id
 	}

@@ -77,14 +77,16 @@ export function parseStackTraceLine(line) {
  * @returns {import('../shared.d.mts').StackFrame[]} 解析得到的帧序列。
  */
 function parseStackStringToFrames(stackStr, leadingLinesToSkip) {
-	if (!stackStr || typeof stackStr !== 'string') return []
+	if (!stackStr) return []
 	const lines = stackStr.split('\n')
-	if (lines.length === 1 && lines[0] === '')
-		return []
+	if (lines.length === 1 && lines[0] === '') return []
 	let skip = leadingLinesToSkip
 	if (globalThis.chrome || !globalThis.document) skip++
+	let diagnosticLinesEndIndex = lines.findIndex(line => !line)
+	if (diagnosticLinesEndIndex === -1) diagnosticLinesEndIndex = 0
+	else skip += diagnosticLinesEndIndex + 1
 	const stackLines = lines.slice(skip).filter(line => line.trim())
-	return stackLines.map(line => parseStackTraceLine(line))
+	return stackLines.map(parseStackTraceLine)
 }
 
 /**
@@ -94,8 +96,7 @@ function parseStackStringToFrames(stackStr, leadingLinesToSkip) {
  * @returns {import('../shared.d.mts').StackFrame[]} 错误栈帧数组。
  */
 export function parseErrorStack(error, skipNum = 0) {
-	if (!error || typeof /** @type {{ stack?: unknown }} */ error.stack !== 'string') return []
-	return parseStackStringToFrames(/** @type {{ stack: string }} */ error.stack, skipNum)
+	return parseStackStringToFrames(error?.stack, skipNum)
 }
 
 /**
@@ -104,7 +105,7 @@ export function parseErrorStack(error, skipNum = 0) {
  * @returns {boolean} 可生成 OSC8 / file URL 时为 true。
  */
 export function isLinkableStackPath(filePath) {
-	if (!filePath || typeof filePath !== 'string') return false
+	if (!filePath) return false
 	if (filePath.startsWith('node:')) return false
 	if (/^https?:\/\//.test(filePath)) return true
 	if (filePath.startsWith('file://')) return true
@@ -136,7 +137,6 @@ export function stackFrameToOsc8Href(frame) {
  */
 export function getStackInfo(leadingLinesToSkip = 0) {
 	const error = new Error()
-	if (!error.stack) return []
 	return parseStackStringToFrames(error.stack, leadingLinesToSkip)
 }
 

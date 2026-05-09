@@ -1,5 +1,6 @@
 import supportsAnsiDefault from 'supports-ansi'
 
+import { methodNameToLevel } from '../core/entries.mjs'
 import { renderAnsi, renderHtml, renderPlain } from '../format/render.mjs'
 
 import {
@@ -12,6 +13,7 @@ import {
  * @property {string} [level]
  * @property {string} [method]
  * @property {number} [timestamp]
+ * @property {string} [id]
  * @property {import('../shared.d.mts').LogSegment[]} [segments]
  * @property {import('../shared.d.mts').StackFrame[]} [stack]
  */
@@ -30,6 +32,7 @@ import {
 
 /**
  * 线路下行单条日志：`render*` 异步仅用于 wire；展开后与进程内 {@link LogEntry} 的 `toString` / `toPlainText` / `toHtml` 同管线。
+ * 注意：展开逻辑会就地更新 `segments` 引用中的 `truncated` 节点，以便后续渲染复用已展开结果。
  */
 export class WireLogEntry {
 	/** @type {(Promise<import('../shared.d.mts').LogSegment[]> & { targetDepth?: number }) | null} */
@@ -40,7 +43,7 @@ export class WireLogEntry {
 	 * @param {WireContext} wire - 展开与 ANSI 开关。
 	 */
 	constructor(payload, wire) {
-		this.level = payload.level
+		this.level = methodNameToLevel(payload.method)
 		this.method = payload.method
 		this.timestamp = payload.timestamp
 		this.stack = payload.stack
@@ -51,7 +54,7 @@ export class WireLogEntry {
 
 	/** @returns {import('../shared.d.mts').StackFrame | null} 第一条带路径的栈帧。 */
 	get primaryCallsite() {
-		return this.stack.find((frame) => frame?.filePath) ?? null
+		return this.stack?.find((frame) => frame?.filePath) ?? null
 	}
 
 	/**
@@ -60,15 +63,10 @@ export class WireLogEntry {
 	 * @returns {Promise<string>} 异步解析得到的 ANSI 正文。
 	 */
 	async renderString(options) {
-		const segments = await this.#ensureExpanded(options?.maxDepth)
-		if (segments.length > 0)
-			return renderAnsi(segments, {
-				colorize: this.supportsAnsi,
-				indent: options?.indent ?? '\t',
-				maxDepth: options?.maxDepth ?? Infinity,
-			})
-
-		return ''
+		return this.#renderWithNormalizedOptions(options, renderAnsi, (normalizedOptions) => ({
+			colorize: this.supportsAnsi,
+			...normalizedOptions,
+		}))
 	}
 
 	/**
@@ -77,14 +75,7 @@ export class WireLogEntry {
 	 * @returns {Promise<string>} 异步解析得到的纯文本。
 	 */
 	async renderPlain(options) {
-		const segments = await this.#ensureExpanded(options?.maxDepth)
-		if (segments.length > 0)
-			return renderPlain(segments, {
-				indent: options?.indent ?? '\t',
-				maxDepth: options?.maxDepth ?? Infinity,
-			})
-
-		return ''
+		return this.#renderWithNormalizedOptions(options, renderPlain, normalizedOptions => normalizedOptions)
 	}
 
 	/**
@@ -93,15 +84,36 @@ export class WireLogEntry {
 	 * @returns {Promise<string>} 异步解析得到的 HTML 字符串。
 	 */
 	async renderHtml(options) {
-		const segments = await this.#ensureExpanded(options?.maxDepth)
-		if (segments.length > 0)
-			return renderHtml(segments, {
-				supportsAnsi: this.supportsAnsi,
-				indent: options?.indent ?? '\t',
-				maxDepth: options?.maxDepth ?? Infinity,
-			})
+		return this.#renderWithNormalizedOptions(options, renderHtml, (normalizedOptions) => ({
+			supportsAnsi: this.supportsAnsi,
+			...normalizedOptions,
+		}))
+	}
 
-		return ''
+	/**
+	 * 统一处理 render* 的展开、空分支与选项归一化。
+	 * @param {WireRenderOptions | undefined} options - 外部渲染选项。
+	 * @param {(segments: import('../shared.d.mts').LogSegment[], options: Record<string, unknown>) => string} renderer - 目标渲染函数。
+	 * @param {(normalizedOptions: { indent: string, maxDepth: number }) => Record<string, unknown>} mapOptions - 渲染器选项映射器。
+	 * @returns {Promise<string>} 渲染后的文本。
+	 */
+	async #renderWithNormalizedOptions(options, renderer, mapOptions) {
+		const normalizedOptions = this.#normalizeRenderOptions(options)
+		const segments = await this.#ensureExpanded(normalizedOptions.maxDepth)
+		if (segments.length === 0)
+			return ''
+		return renderer(segments, mapOptions(normalizedOptions))
+	}
+
+	/**
+	 * @param {WireRenderOptions | undefined} options - 外部渲染选项。
+	 * @returns {{ indent: string, maxDepth: number }} 归一化后的渲染选项。
+	 */
+	#normalizeRenderOptions(options) {
+		return {
+			indent: options?.indent ?? '\t',
+			maxDepth: options?.maxDepth ?? Infinity,
+		}
 	}
 
 	/**
@@ -166,13 +178,63 @@ export class WireLogEntry {
 			segments: this.segments,
 		}
 	}
+}
+
+/**
+ * `freshLine` 的 wire 条目：在基础字段上追加 id。
+ */
+export class FreshLineWireLogEntry extends WireLogEntry {
+	/**
+	 * @param {WireLogEntryPayload | Record<string, unknown>} payload - 线路 JSON 单条载荷。
+	 * @param {WireContext} wire - 展开与 ANSI 开关。
+	 */
+	constructor(payload, wire) {
+		super(payload, wire)
+		this.id = String(payload.id ?? '')
+	}
 
 	/**
-	 * @param {unknown} value - 线路载荷或已有实例。
-	 * @param {WireContext} wire - 必填连接上下文。
-	 * @returns {WireLogEntry} 包装实例。
+	 * @returns {Record<string, unknown>} JSON 友好对象。
 	 */
-	static from(value, wire) {
-		return value instanceof WireLogEntry ? value : new WireLogEntry(value, wire)
+	toJSON() {
+		return {
+			...super.toJSON(),
+			id: this.id,
+		}
 	}
+}
+
+/** `console.dir` 的 wire 条目。 */
+export class DirWireLogEntry extends WireLogEntry { }
+
+/** `console.trace` 的 wire 条目。 */
+export class TraceWireLogEntry extends WireLogEntry { }
+
+/** `stdout` / `stderr` 的 wire 条目。 */
+export class StreamWireLogEntry extends WireLogEntry { }
+
+const methodToConstructorMap = {
+	dir: DirWireLogEntry,
+	trace: TraceWireLogEntry,
+	stdout: StreamWireLogEntry,
+	stderr: StreamWireLogEntry,
+	freshLine: FreshLineWireLogEntry,
+}
+
+/**
+ * @param {unknown} method - 线路条目 method。
+ * @returns {typeof WireLogEntry} 对应条目构造器。
+ */
+function methodToConstructor(method) {
+	return methodToConstructorMap[method] || WireLogEntry
+}
+
+/**
+ * 根据 JSON 载荷中的 `method` 自动分派 wire 条目子类。
+ * @param {unknown} json - 线路 JSON 载荷或已有实例。
+ * @param {WireContext} wire - 必填连接上下文。
+ * @returns {WireLogEntry} 对应的 wire 条目实例。
+ */
+export function createWireLogEntryFromJson(json, wire) {
+	return new (methodToConstructor(json?.method))(json, wire)
 }

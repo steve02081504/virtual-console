@@ -1,23 +1,8 @@
 import type { ArgSnapshot } from '../shared.d.mts'
 
-export declare function makeAppendPayload(entry: unknown, index: number): {
-	type: string
-	entry: Record<string, unknown>
-}
-
-export declare function makeSnapshotPayload(entries: unknown[]): Record<string, unknown>
-
-export declare function makeExpandResponse(ref: string, snapshot: ArgSnapshot): Record<string, unknown>
-
-export declare function makeExpandErrorResponse(ref: string, error: string): Record<string, unknown>
-
-export declare function parseClientExpandMessage(parsed: unknown): { ref: string } | null
-
-export declare function parseClientClearMessage(parsed: unknown): Record<string, never> | null
-
 export declare function handleClientWireMessage(
 	parsed: unknown,
-	handlers?: { expandSnapshotRef?: (ref: string) => { ok: boolean; snapshot?: ArgSnapshot; error?: string } }
+	handlers?: { expandSnapshotRef?: (ref: string, maxDepth?: number) => { ok: boolean; snapshot?: ArgSnapshot; error?: string } }
 ): Record<string, unknown> | null
 
 /** `express-ws` 等挂载用的回调，以及群发 / 遍历当前连接的扩展方法。 */
@@ -38,6 +23,7 @@ export type LogWireWebSocketHandler = ((
 		close?: (code?: number, reason?: string) => void
 	}) => void) => void
 	closeAllWithFinalJson: (payload: object) => Promise<void>
+	dispose: () => void
 }
 
 export type LogWireServerClientMessageEvent = {
@@ -56,11 +42,13 @@ export declare function createLogWireWebSocketHandler(
 		outputEntries: unknown[]
 		addLogEntryListener: (fn: (entry: unknown) => void) => void
 		addClearListener: (fn: () => void) => void
+		removeLogEntryListener?: (fn: (entry: unknown) => void) => void
+		removeClearListener?: (fn: () => void) => void
 		clear: () => void
 	},
 	wireOptions?: {
-		onClientConnected?: (event: { ws: unknown; req: unknown; clientCount: number }) => void
-		onClientDisconnected?: (event: { ws: unknown; reason: 'close' | 'error'; clientCount: number }) => void
+		onClientConnected?: (event: { ws: unknown; req: unknown; clientCount: number }) => void | Promise<void>
+		onClientDisconnected?: (event: { ws: unknown; reason: 'close' | 'error'; clientCount: number }) => void | Promise<void>
 		onClientMessage?: LogWireServerClientMessageHandler
 		clientMessageHandlers?: Record<string, LogWireServerClientMessageHandler>
 	}

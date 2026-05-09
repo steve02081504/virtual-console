@@ -7,24 +7,27 @@ import supportsAnsi from 'supports-ansi'
 import {
 	dispatchLogWireMessage,
 	logWirePayloadTypes,
+	WS_OPEN,
 } from './protocol.mjs'
-import { WireLogEntry } from './wire-log-entry.mjs'
+import { createWireLogEntryFromJson, WireLogEntry } from './wire-log-entry.mjs'
 
 /**
- * 从 `./wire-log-entry.mjs` 再导出 `WireLogEntry`，便于仅依赖本文件的打包入口直接使用。
+ * 从 `./wire-log-entry.mjs` 再导出 `WireLogEntry`和`createWireLogEntryFromJson`，便于仅依赖本文件的打包入口直接使用。
  */
-export { WireLogEntry }
+export { WireLogEntry, createWireLogEntryFromJson }
 
 const defaultSupportsAnsi = supportsAnsi
 /**
  * 浏览器 / Node 客户端侧处理 logWire 下行帧的回调集合。
  * @typedef {object} LogWireClientHandlers
- * @property {function(import('./wire-log-entry.mjs').WireLogEntry[]): void | Promise<void>} [onSnapshot]
- * @property {function(import('./wire-log-entry.mjs').WireLogEntry): void | Promise<void>} [onAppend]
+ * @property {function(Array<ReturnType<typeof createWireLogEntryFromJson>>): void | Promise<void>} [onSnapshot]
+ * @property {function(ReturnType<typeof createWireLogEntryFromJson>): void | Promise<void>} [onAppend]
  * @property {function(): void | Promise<void>} [onClear]
  * @property {Record<string, function(object): void>} [extensionHandlers]
  * @property {function(object): void} [onUnknown]
- * @property {function(Error, unknown): void} [onParseError] - `JSON.parse` 失败或异步分发/回调抛错时调用。
+ * @property {function(Error, unknown): void} [onParseError] - `JSON.parse` 失败时调用。
+ * @property {function(Error, unknown): void} [onDispatchError] - 协议分发或业务回调抛错时调用。
+ * @property {function(Error, unknown): void} [onFatal] - 致命错误且未提供对应特化处理器时的兜底。
  * @property {function(Event): void} [onOpen]
  * @property {function(CloseEvent): void} [onClose]
  * @property {function(Event): void} [onError]
@@ -55,23 +58,38 @@ export function attachLogWire(ws, {
 	onUnknown,
 	extensionHandlers,
 	onParseError,
+	onDispatchError,
 	onOpen,
 	onClose,
 	onError,
+	onFatal,
 	supportsAnsi = defaultSupportsAnsi,
 } = {}) {
+	onParseError ??= onFatal
+	onDispatchError ??= onFatal
 	/**
 	 * `requestExpand` 挂起的 Promise，按 ref 兑现或拒绝。
-	 * @type {Map<string, { resolve: (v: unknown) => void, reject: (e?: Error) => void }>}
+	 * @type {Map<string, { promise: Promise<unknown>, resolve: (v: unknown) => void, reject: (e?: Error) => void }>}
 	 */
 	const pendingExpands = new Map()
 
 	/**
-	 * @param {unknown} raw - `serializeLogEntryForWire` 单条载荷。
-	 * @returns {import('./wire-log-entry.mjs').WireLogEntry} 绑定当前连接的异步条目。
+	 * 拒绝并清理所有挂起的展开请求。
+	 * @param {string} errorMessage - 统一错误消息。
+	 * @returns {void}
+	 */
+	function rejectAllPendingExpands(errorMessage) {
+		for (const { reject } of pendingExpands.values())
+			reject(new Error(errorMessage))
+		pendingExpands.clear()
+	}
+
+	/**
+	 * @param {unknown} raw - 服务端下发的单条 JSON 载荷。
+	 * @returns {ReturnType<typeof createWireLogEntryFromJson>} 绑定当前连接的异步条目。
 	 */
 	function wrapWireEntry(raw) {
-		return WireLogEntry.from(raw, {
+		return createWireLogEntryFromJson(raw, {
 			requestExpand,
 			supportsAnsi,
 		})
@@ -94,23 +112,51 @@ export function attachLogWire(ws, {
 	}
 
 	/**
+	 * 在连接可用时发送 JSON 帧；未连接或发送异常返回 false。
+	 * @param {object} payload - 可 JSON 序列化对象。
+	 * @returns {boolean} `true` 表示发送成功，`false` 表示连接未就绪或发送失败。
+	 */
+	function safeSendJson(payload) {
+		if (ws.readyState !== WS_OPEN)
+			return false
+		try {
+			ws.send(JSON.stringify(payload))
+			return true
+		}
+		catch {
+			return false
+		}
+	}
+
+	/**
 	 * 发送展开请求并等待同 ref 的应答（由内部 `pendingExpands` 兑现）。
 	 * @param {string} ref - 与快照中 `truncated.ref` 一致。
 	 * @param {number} [maxDepth] - 期望展开的最大深度；无效值将被忽略。
 	 * @returns {Promise<unknown>} resolve 为快照对象；失败 reject。
 	 */
 	function requestExpand(ref, maxDepth) {
-		const normalizedMaxDepth = Number.isFinite(maxDepth)
-			? Math.max(0, Math.floor(maxDepth))
-			: undefined
-		return new Promise((resolve, reject) => {
-			pendingExpands.set(ref, { resolve, reject })
-			ws.send(JSON.stringify({
-				type: logWirePayloadTypes.EXPAND_REQUEST,
-				ref,
-				...normalizedMaxDepth !== undefined ? { maxDepth: normalizedMaxDepth } : {},
-			}))
+		const existing = pendingExpands.get(ref)
+		if (existing)
+			return existing.promise
+		/** @type {(v: unknown) => void} */
+		let resolvePending
+		/** @type {(e?: Error) => void} */
+		let rejectPending
+		const promise = new Promise((resolve, reject) => {
+			resolvePending = resolve
+			rejectPending = reject
 		})
+		pendingExpands.set(ref, { promise, resolve: resolvePending, reject: rejectPending })
+		const sent = safeSendJson({
+			type: logWirePayloadTypes.EXPAND_REQUEST,
+			ref,
+			maxDepth,
+		})
+		if (!sent) {
+			pendingExpands.delete(ref)
+			rejectPending(new Error('log_wire_send_failed'))
+		}
+		return promise
 	}
 
 	/**
@@ -119,8 +165,15 @@ export function attachLogWire(ws, {
 	 * @returns {Promise<void>}
 	 */
 	const listener = async (/** @type {MessageEvent} */ ev) => {
+		let parsed
 		try {
-			const parsed = JSON.parse(ev.data)
+			parsed = JSON.parse(ev.data)
+		}
+		catch (error) {
+			onParseError?.(error, ev.data)
+			return
+		}
+		try {
 			await dispatchLogWireMessage(parsed, {
 				onSnapshot: dispatchSnapshot,
 				onAppend: dispatchAppend,
@@ -145,14 +198,33 @@ export function attachLogWire(ws, {
 			})
 		}
 		catch (error) {
-			onParseError?.(error, ev.data)
+			onDispatchError?.(error, parsed)
 		}
+	}
+
+	/**
+	 * 底层连接关闭时结束全部挂起展开请求。
+	 * @param {CloseEvent} ev - 关闭事件。
+	 * @returns {void}
+	 */
+	const closeListener = (ev) => {
+		rejectAllPendingExpands('log_wire_closed')
+		onClose?.(ev)
+	}
+	/**
+	 * 底层连接错误时结束全部挂起展开请求。
+	 * @param {Event} ev - 错误事件。
+	 * @returns {void}
+	 */
+	const errorListener = (ev) => {
+		rejectAllPendingExpands('log_wire_error')
+		onError?.(ev)
 	}
 
 	ws.addEventListener('message', listener)
 	if (onOpen) ws.addEventListener('open', onOpen)
-	if (onClose) ws.addEventListener('close', onClose)
-	if (onError) ws.addEventListener('error', onError)
+	ws.addEventListener('close', closeListener)
+	ws.addEventListener('error', errorListener)
 
 	return {
 		ws,
@@ -169,8 +241,7 @@ export function attachLogWire(ws, {
 		 * @returns {boolean} 是否已成功入队发送。
 		 */
 		requestClear: () => {
-			ws.send(JSON.stringify({ type: logWirePayloadTypes.CLEAR_REQUEST }))
-			return true
+			return safeSendJson({ type: logWirePayloadTypes.CLEAR_REQUEST })
 		},
 		/**
 		 * 发送任意 JSON 对象（自行保证与服务端约定一致）。
@@ -178,21 +249,18 @@ export function attachLogWire(ws, {
 		 * @returns {boolean} 是否已发送。
 		 */
 		sendJson: (obj) => {
-			ws.send(JSON.stringify(obj))
-			return true
+			return safeSendJson(obj)
 		},
 		/**
 		 * 移除所有事件监听并拒绝挂起的 `requestExpand`。
 		 * @returns {void}
 		 */
 		detach: () => {
-			for (const { reject } of pendingExpands.values())
-				reject(new Error('log_wire_detached'))
-			pendingExpands.clear()
+			rejectAllPendingExpands('log_wire_detached')
 			ws.removeEventListener('message', listener)
 			if (onOpen) ws.removeEventListener('open', onOpen)
-			if (onClose) ws.removeEventListener('close', onClose)
-			if (onError) ws.removeEventListener('error', onError)
+			ws.removeEventListener('close', closeListener)
+			ws.removeEventListener('error', errorListener)
 		},
 	}
 }

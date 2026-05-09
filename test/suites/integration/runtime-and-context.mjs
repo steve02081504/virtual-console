@@ -128,7 +128,7 @@ async function testLogEntryStack() {
 	await vc2.hookAsyncContext(() => callerOfStdoutWrite())
 
 	const stdoutEntry = vc2.outputEntries.find(e =>
-		e.method === 'stdout' && typeof e.streamText === 'string' && e.streamText.includes('stdout-stack-top-marker'))
+		e.method === 'stdout' && typeof e.text === 'string' && e.text.includes('stdout-stack-top-marker'))
 
 	assert(stdoutEntry, '找到带标记的 stdout 条目')
 	assert(Array.isArray(stdoutEntry.stack) && stdoutEntry.stack.length > 0, 'stdout 条目含非空 stack')

@@ -15,6 +15,7 @@ import {
 
 import { pathToFileURL } from '../../../src/core/stack.mjs'
 import { parseCssDecls } from '../../../src/format/css-to-ansi.mjs'
+import { applyExpandedSnapshotsInSegments } from '../../../src/wire/expand-wire-segments.mjs'
 import { assert, assertEqual, assertIncludes, runTestGroup } from '../../harness.mjs'
 
 /**
@@ -263,7 +264,7 @@ function testResolveTraceFrameHref() {
 	console.log('\n=== [HTML resolveTraceFrameHref] ===')
 	const html = renderHtml([{
 		kind: 'trace',
-		snapshot: serializeArgSnapshot([{ functionName: 'f', filePath: '/x.mjs', line: 1, column: 0, raw: 'at f (/x.mjs:1:0)' }]),
+		stack: [{ functionName: 'f', filePath: '/x.mjs', line: 1, column: 0, raw: 'at f (/x.mjs:1:0)' }],
 	}], {
 		/**
 		 * 自定义 trace 链接目标。
@@ -272,6 +273,52 @@ function testResolveTraceFrameHref() {
 		resolveTraceFrameHref: () => 'https://example.com/custom',
 	})
 	assertIncludes(html, 'https://example.com/custom', '自定义 trace 链接 href')
+}
+
+/**
+ * 验证 trace 条目 toSegments 使用结构化栈帧数组（与 LogEntry#stack 同源），而非 ArgSnapshot。
+ */
+function testTraceSegmentUsesStructuredStack() {
+	console.log('\n=== [trace 片段：结构化 stack] ===')
+	const frames = [{ functionName: 'g', filePath: 'z.mjs', line: 2, column: 3, raw: '  at g (z.mjs:2:3)' }]
+	const traceEntry = newLogEntry({
+		method: 'trace',
+		args: ['label'],
+		stack: frames,
+		supportsAnsi: false,
+	})
+	const traceSeg = traceEntry.toSegments().find(s => s.kind === 'trace')
+	assert(traceSeg != null && traceSeg.kind === 'trace', '存在 trace 段')
+	assert(traceSeg.stack === frames, 'trace.stack 与条目 stack 同源引用')
+	assert(!Object.prototype.hasOwnProperty.call(traceSeg, 'snapshot'), 'trace 段不应含 snapshot 字段')
+}
+
+/**
+ * 验证 trace 片段在 plain / ANSI 渲染下的输出。
+ */
+function testRenderTraceSegmentAnsiAndPlain() {
+	console.log('\n=== [trace 片段：ANSI / plain 渲染] ===')
+	const stack = [{ functionName: '', filePath: '/tmp/a.mjs', line: 10, column: 1, raw: 'at (/tmp/a.mjs:10:1)' }]
+	const segments = [{ kind: 'trace', stack }]
+	assertEqual(renderPlain(segments), stack[0].raw, 'plain 为 raw 行拼接')
+	const ansiOn = renderAnsi(segments, { colorize: true })
+	assertIncludes(ansiOn, '\x1b]8;;', '可链接帧含 OSC8')
+	const ansiOff = renderAnsi(segments, { colorize: false })
+	assert(!/\x1b]8;;/.test(ansiOff), '关闭着色时不注入 OSC8')
+}
+
+/**
+ * 验证 wire 侧就地展开不会误把 trace 段当作快照根写入 snapshot。
+ */
+function testApplyExpandedSnapshotsPreservesTraceSegment() {
+	console.log('\n=== [wire 展开：trace 段不参与快照槽位] ===')
+	const segments = [{
+		kind: 'trace',
+		stack: [{ functionName: '', filePath: '', line: 0, column: 0, raw: 'at native' }],
+	}]
+	applyExpandedSnapshotsInSegments(segments, new Map())
+	assert(!Object.prototype.hasOwnProperty.call(segments[0], 'snapshot'), 'trace 段不应出现 snapshot 字段')
+	assertEqual(renderPlain(segments), 'at native', '展开后 plain 渲染不变')
 }
 
 /**
@@ -328,6 +375,9 @@ export async function runSnapshotAndRenderingTests() {
 		testPrintfCssAnsiMapping,
 		testRenderPlainHtmlOptions,
 		testResolveTraceFrameHref,
+		testTraceSegmentUsesStructuredStack,
+		testRenderTraceSegmentAnsiAndPlain,
+		testApplyExpandedSnapshotsPreservesTraceSegment,
 		testCrossRealmSnapshotKinds,
 		testStringLiteralQuoteParity,
 		testCircularSnapshotParity,

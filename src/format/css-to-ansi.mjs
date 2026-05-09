@@ -8,9 +8,16 @@
 
 import colorName from 'color-name'
 
-/** @typedef {{ r: number; g: number; b: number }} Rgb */
+/**
+ * 表示 RGB 颜色通道。
+ * @typedef {{ r: number; g: number; b: number }} Rgb
+ * @property {number} r - 红色通道
+ * @property {number} g - 绿色通道
+ * @property {number} b - 蓝色通道
+ */
 
 /**
+ * 表示 CSS 声明的 ANSI SGR 与颜色标志。
  * @typedef {object} CssAnsiDeclFlags
  * @property {Rgb | undefined} [fg]
  * @property {Rgb | undefined} [bg]
@@ -100,7 +107,6 @@ export function parseCssColorToRgb(value) {
 		let h = hexMatch[1]
 		if (h.length === 3 || h.length === 4)
 			h = h.slice(0, 3).split('').map(c => c + c).join('')
-
 		else if (h.length === 8)
 			h = h.slice(0, 6)
 		const n = parseInt(h, 16)
@@ -109,10 +115,8 @@ export function parseCssColorToRgb(value) {
 	}
 
 	const rgbMatch = /^rgba?\(\s*([\S\s]+?)\s*\)$/i.exec(v)
-	if (rgbMatch) {
-		const rgb = parseRgbFunctionInner(rgbMatch[1].replace(/\s*\/\s*[\d.]+\s*$/, ''))
-		return rgb
-	}
+	if (rgbMatch)
+		return parseRgbFunctionInner(rgbMatch[1].replace(/\s*\/\s*[\d.]+\s*$/, ''))
 
 	// hsl(h,s,l) 与 hsla(h,s,l,α)：前三项为色相/饱和度/亮度（颜色）；第四项 α 是透明度，不参与 RGB 换算。
 	// 斜杠语法里的 α 已在 inner 上去掉；逗号形式 hsla 则需丢弃第四段，避免把 α 误当作 L。

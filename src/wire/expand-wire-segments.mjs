@@ -41,7 +41,7 @@ function collectTruncatedRefsInSnapshot(snap, refsToMinDepth, depth) {
  */
 function* iterSegmentSnapshotSlots(segments) {
 	for (const seg of segments)
-		if (seg.kind === 'value') {
+		if (seg.kind === 'value')
 			yield {
 				/**
 				 * @returns {unknown} 当前 `value` 段快照根。
@@ -53,41 +53,6 @@ function* iterSegmentSnapshotSlots(segments) {
 				 */
 				set: (v) => { seg.snapshot = v },
 			}
-			if (seg.dirOptions) yield {
-				/**
-				 * @returns {unknown} 当前 `dirOptions` 快照。
-				 */
-				get: () => seg.dirOptions,
-				/**
-				 * @param {unknown} v - 新的 `dirOptions` 快照。
-				 * @returns {void}
-				 */
-				set: (v) => { seg.dirOptions = v },
-			}
-		}
-		else if (seg.kind === 'trace') yield {
-			/**
-			 * @returns {unknown} 当前 `trace` 段快照。
-			 */
-			get: () => seg.snapshot,
-			/**
-			 * @param {unknown} v - 替换后的 trace 快照。
-			 * @returns {void}
-			 */
-			set: (v) => { seg.snapshot = v },
-		}
-}
-
-/**
- * @param {import('../shared.d.mts').LogSegment[]} segments - 片段数组。
- * @returns {Set<string>} 需要云端展开的非空 ref 集合。
- */
-export function collectTruncatedRefsFromSegments(segments) {
-	const refs = new Set()
-	for (const [ref] of collectTruncatedRefsWithDepthFromSegments(segments))
-		refs.add(ref)
-
-	return refs
 }
 
 /**
@@ -103,37 +68,31 @@ export function collectTruncatedRefsWithDepthFromSegments(segments) {
 }
 
 /**
- * 将快照树中指定 ref 的 `truncated` 节点替换为展开后的快照（就地改写克隆）。
+ * 按 ref 映射替换快照树中的 `truncated` 节点（就地改写克隆）。
  * @param {unknown} snap - 任意快照子树。
- * @param {string} ref - 目标 ref。
- * @param {unknown} replacement - 服务端返回的展开快照。
+ * @param {Map<string, unknown>} refToSnapshot - ref 到展开快照映射。
  * @returns {unknown} 可能替换后的根。
  */
-function replaceTruncatedInSnapshot(snap, ref, replacement) {
+function replaceTruncatedInSnapshot(snap, refToSnapshot) {
 	if (snap === null || typeof snap !== 'object') return snap
-	if (snap.kind === 'truncated' && snap.ref === ref)
-		return replacement
+	if (snap.kind === 'truncated' && typeof snap.ref === 'string' && refToSnapshot.has(snap.ref)) {
+		const replacement = refToSnapshot.get(snap.ref)
+		// 保护：若 replacement 与当前节点同引用，则直接返回，避免自引用替换死循环。
+		if (replacement === snap) return snap
+		return replaceTruncatedInSnapshot(replacement, refToSnapshot)
+	}
 
 	if (Array.isArray(snap)) {
 		for (let i = 0; i < snap.length; i++)
-			snap[i] = replaceTruncatedInSnapshot(snap[i], ref, replacement)
+			snap[i] = replaceTruncatedInSnapshot(snap[i], refToSnapshot)
 
 		return snap
 	}
 
 	for (const key of Object.keys(snap))
-		snap[key] = replaceTruncatedInSnapshot(snap[key], ref, replacement)
+		snap[key] = replaceTruncatedInSnapshot(snap[key], refToSnapshot)
 
 	return snap
-}
-
-/**
- * 深度克隆 `LogSegment[]`（JSON 安全载荷）。
- * @param {import('../shared.d.mts').LogSegment[]} segments - 原始片段。
- * @returns {import('../shared.d.mts').LogSegment[]} 可变的克隆副本。
- */
-export function cloneSegments(segments) {
-	return JSON.parse(JSON.stringify(segments ?? []))
 }
 
 /**
@@ -143,9 +102,8 @@ export function cloneSegments(segments) {
  * @returns {import('../shared.d.mts').LogSegment[]} 同一数组引用（便于调用方直接持有）。
  */
 export function applyExpandedSnapshotsInSegments(segments, refToSnapshot) {
-	for (const [ref, snapshot] of refToSnapshot)
-		for (const slot of iterSegmentSnapshotSlots(segments))
-			slot.set(replaceTruncatedInSnapshot(slot.get(), ref, snapshot))
+	for (const slot of iterSegmentSnapshotSlots(segments))
+		slot.set(replaceTruncatedInSnapshot(slot.get(), refToSnapshot))
 
 	return segments
 }

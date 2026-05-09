@@ -30,107 +30,34 @@ export function formatSnapshotPlain(snap, options = {}) {
  */
 export function formatSnapshotAnsi(snap, options = {}) {
 	const raw = formatSnapshotInner(snap, { depth: Infinity, colorize: true, ...options })
-	if (options.colorize === false)
-		return stripTerminalDecorations(raw)
+	if (options.colorize === false) return stripTerminalDecorations(raw)
 	return raw
 }
 
 /**
- * @param {import('../shared.d.mts').ArgSnapshot | undefined} dirSnap - `dirOptions` 序列化快照。
+ * 合并 `console.dir` 浅层选项与渲染默认值。
+ * @param {import('../shared.d.mts').DirOptionsPayload | undefined} dirOpts - 片段上的 `dirOptions`。
  * @param {{ depth: number; colorize: boolean }} fallback - 默认值。
- * @returns {{ depth: number; colorize: boolean }} 合并后的 `depth` / `colors`（着色）选项。
+ * @returns {{ depth: number; colorize: boolean }} `formatSnapshot*` 使用的深度与是否着色。
  */
-export function parseDirOptionsSnapshot(dirSnap, fallback = { depth: DEFAULT_SNAPSHOT_DEPTH, colorize: true }) {
-	if (!dirSnap || typeof dirSnap !== 'object') return { ...fallback }
-	const out = { ...fallback }
-	const entries = /** @type {{ entries?: Array<{ key: string; value: unknown }> }} */ dirSnap.entries
-	if (!Array.isArray(entries)) return out
-	for (const entry of entries) {
-		if (!entry || typeof entry !== 'object') continue
-		const { key, value } = /** @type {{ key: string; value: { kind?: string; value?: unknown } }} */ entry
-		if (key === 'depth' && value && typeof value === 'object' && /** @type {{ kind?: string }} */ value.kind === 'number')
-			out.depth = /** @type {{ value: number }} */ value.value
-		if (key === 'colors' && value && typeof value === 'object' && /** @type {{ kind?: string }} */ value.kind === 'boolean')
-			out.colorize = /** @type {{ value: boolean }} */ value.value
+export function mergeDirOptionsForRender(dirOpts, fallback = { depth: DEFAULT_SNAPSHOT_DEPTH, colorize: true }) {
+	if (!dirOpts) return fallback
+	return {
+		depth: dirOpts.depth ?? fallback.depth,
+		colorize: fallback.colorize && dirOpts.colors, // 若环境不支持 ANSI，片段也无法启用着色
 	}
-	return out
 }
 
 /**
- * @param {{ dirOptions?: import('../shared.d.mts').ArgSnapshot }} segment - `kind: 'value'` 片段。
+ * @param {{ dirOptions?: import('../shared.d.mts').DirOptionsPayload }} segment - `kind: 'value'` 片段。
  * @param {boolean} supportsAnsi - 条目级 ANSI 开关。
  * @returns {{ depth: number; colorize: boolean }} `formatSnapshot*` 使用的深度与是否着色。
  */
 export function resolveValueRenderOptions(segment, supportsAnsi) {
-	if (segment.dirOptions != null) {
-		const parsed = parseDirOptionsSnapshot(segment.dirOptions, {
-			depth: DEFAULT_SNAPSHOT_DEPTH,
-			colorize: supportsAnsi,
-		})
-		return {
-			depth: parsed.depth,
-			colorize: supportsAnsi && parsed.colorize,
-		}
-	}
-	return { depth: Infinity, colorize: supportsAnsi }
-}
-
-/**
- * @param {import('../shared.d.mts').ArgSnapshot} snap - `trace` 段载荷（一般为栈数组快照）。
- * @returns {import('../shared.d.mts').StackFrame[]} 结构化栈帧，供 HTML/ANSI 栈块渲染。
- */
-export function snapshotToTraceFrames(snap) {
-	if (!snap || typeof snap !== 'object' || snap.kind !== 'array')
-		return []
-	const items = /** @type {unknown[]} */ snap.items || []
-	const frames = []
-	for (const item of items) {
-		const f = taggedSnapshotToStackFrame(item)
-		if (f) frames.push(f)
-	}
-	return frames
-}
-
-/**
- * @param {unknown} obj - 单帧快照节点。
- * @returns {import('../shared.d.mts').StackFrame | null} 合法帧对象；结构不符时为 null。
- */
-function taggedSnapshotToStackFrame(obj) {
-	if (!obj || typeof obj !== 'object') return null
-	const kind = /** @type {{ kind?: string }} */ obj.kind
-	if (kind !== 'object' && kind !== 'Object')
-		return null
-	const entries = /** @type {{ entries?: Array<{ key: string; value: unknown }> }} */ obj.entries
-	if (!Array.isArray(entries)) return null
-	/** @type {import('../shared.d.mts').StackFrame} */
-	const frame = {
-		functionName: '',
-		filePath: '',
-		line: 0,
-		column: 0,
-		raw: '',
-	}
-	for (const ent of entries) {
-		if (!ent || typeof ent !== 'object') continue
-		const { key, value: val } = ent
-		if (key === 'functionName') frame.functionName = String(unwrapTaggedLeaf(val))
-		else if (key === 'filePath') frame.filePath = String(unwrapTaggedLeaf(val))
-		else if (key === 'line') frame.line = Number(unwrapTaggedLeaf(val)) || 0
-		else if (key === 'column') frame.column = Number(unwrapTaggedLeaf(val)) || 0
-		else if (key === 'raw') frame.raw = String(unwrapTaggedLeaf(val))
-	}
-	return frame
-}
-
-/**
- * @param {unknown} taggedLeaf - 可能是已打 `kind` 的叶子节点，或原始值。
- * @returns {unknown} 解包后的原始叶子值。
- */
-function unwrapTaggedLeaf(taggedLeaf) {
-	if (taggedLeaf == null || typeof taggedLeaf !== 'object') return taggedLeaf
-	const n = /** @type {{ kind?: string; value?: unknown }} */ taggedLeaf
-	if (n.kind === 'string' || n.kind === 'number' || n.kind === 'boolean') return n.value
-	return taggedLeaf
+	return mergeDirOptionsForRender(segment.dirOptions, {
+		depth: Infinity,
+		colorize: supportsAnsi,
+	})
 }
 
 /**
@@ -195,59 +122,7 @@ function quoteSingleJsString(raw) {
 function formatErrorHeaderAnsi(name, msg, colors, bracketName = false) {
 	const bold = '\x1b[1m'
 	const grey = colors.grey || ''
-	if (bracketName) {
-		if (msg)
-			return `${bold}${grey}[${colors.yellow}${name}${grey}: ${colors.red}${msg}${grey}]${colors.reset}`
-		return `${bold}${grey}[${colors.yellow}${name}${grey}]${colors.reset}`
-	}
-	if (msg)
-		return `${bold}${colors.yellow}${name}${colors.reset}: ${colors.red}${msg}${colors.reset}`
-	return `${bold}${colors.yellow}${name}${colors.reset}`
-}
-
-/**
- * 从 Error 快照单帧反序列化（与 {@link parseStackTraceLine} 同构）。
- * @param {unknown} item - 一帧的 JSON 对象。
- * @returns {import('../shared.d.mts').StackFrame} 帧字段齐全；无效输入时为空帧。
- */
-function stackFrameFromErrorSnapshot(item) {
-	if (!item || typeof item !== 'object')
-		return { functionName: '', filePath: '', line: 0, column: 0, raw: '' }
-
-	const o = /** @type {Record<string, unknown>} */ item
-	return {
-		functionName: String(o.functionName ?? ''),
-		filePath: String(o.filePath ?? ''),
-		line: Number(o.line) || 0,
-		column: Number(o.column) || 0,
-		raw: String(o.raw ?? ''),
-	}
-}
-
-/**
- * 从快照取解析后的栈帧（`stack` 为帧对象数组，与序列化管线一致）。
- * @param {Record<string, unknown>} node - `kind: 'Error'` 节点。
- * @returns {import('../shared.d.mts').StackFrame[]} 解析后的栈帧列表。
- */
-function getErrorStackFramesFromSnapshot(node) {
-	if (Array.isArray(node.stack) && node.stack.length) {
-		const first = node.stack[0]
-		if (first && typeof first === 'object')
-			return node.stack.map(item => stackFrameFromErrorSnapshot(item))
-	}
-	return []
-}
-
-/**
- * 用 `name` / `message` 与解析帧拼展示用多行文本（不依赖原始 `error.stack` 字符串）。
- * 若首帧 `raw` 与标题行同文（如 SyntaxError 栈内重复出现首行），去掉该帧避免重复。
- * @param {string} head - 与首行展示一致的纯文本（`name: msg` 或 `name`）。
- * @param {import('../shared.d.mts').StackFrame[]} frames - 解析帧。
- * @returns {import('../shared.d.mts').StackFrame[]} 去掉与 `head` 重复 raw 后的帧。
- */
-function dedupeFramesMatchingHead(head, frames) {
-	const h = head.trim()
-	return frames.filter(frame => frame.raw == null || frame.raw.trim() !== h)
+	return `${bold}${bracketName ? `${grey}[` : ''}${colors.yellow}${name}${msg ? `${grey}: ${colors.red}${msg}` : ''}${bracketName ? `${grey}]` : ''}${colors.reset}`
 }
 
 /**
@@ -258,14 +133,9 @@ function dedupeFramesMatchingHead(head, frames) {
  * @returns {string} 纯文本多行栈体。
  */
 function buildErrorStackBodyText(name, msg, frames) {
-	const headLinePlain = msg ? `${name}: ${msg}` : name
-	const rest = dedupeFramesMatchingHead(headLinePlain, frames)
-	const noStackLines = !frames.length || !rest.length
-	const head = noStackLines
-		? msg ? `[${name}: ${msg}]` : `[${name}]`
-		: headLinePlain
-	if (noStackLines) return head
-	return `${headLinePlain}\n${rest.map(f => f.raw).join('\n')}`
+	const headLinePlain = `${name}${msg ? `: ${msg}` : ''}`
+	if (!frames.length) return `[${headLinePlain}]`
+	return `${headLinePlain}\n${frames.map(f => f.raw).join('\n')}`
 }
 
 /**
@@ -400,17 +270,11 @@ function formatErrorStackLineAnsi(line, colors, parsedFrame) {
  */
 function formatErrorSnapshotAnsiFromFrames(name, msg, frames, extraRendered, colors) {
 	const wrappedNoStack = wrapErrorEntriesAnsi(extraRendered, colors, { openAfterStack: false })
-	const headText = msg ? `${name}: ${msg}` : name
-	const restFrames = dedupeFramesMatchingHead(headText, frames)
-	const bracketHeader = !frames.length || !restFrames.length
+	const bracketHeader = !frames.length
 	const headerLine = formatErrorHeaderAnsi(name, msg, colors, bracketHeader)
-	if (!frames.length)
-		return `${headerLine}${wrappedNoStack}`
-	if (!restFrames.length)
-		return `${headerLine}${wrappedNoStack}`
+	if (!frames.length) return `${headerLine}${wrappedNoStack}`
 	const wrappedExtra = wrapErrorEntriesAnsi(extraRendered, colors, { openAfterStack: true })
-	const rest = restFrames.map(frame =>
-		formatErrorStackLineAnsi(frame.raw, colors, frame)).join('\n')
+	const rest = frames.map(frame => formatErrorStackLineAnsi(frame.raw, colors, frame)).join('\n')
 	return `${headerLine}\n${rest}${wrappedExtra}`
 }
 
@@ -459,7 +323,6 @@ function formatSnapshotInner(snap, options) {
 			if (!Array.isArray(entries) || !entries.length) return ''
 			if (objectDepth >= depthLimit) return ''
 			const compactLines = entries.map(entry => {
-				if (!entry || typeof entry !== 'object') return '?'
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
 				let keyStr = key
 				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
@@ -472,7 +335,6 @@ function formatSnapshotInner(snap, options) {
 			const spaces = indentUnit.repeat(objectDepth + 1)
 			const nextIndent = indentUnit.repeat(objectDepth)
 			const lines = entries.map(entry => {
-				if (!entry || typeof entry !== 'object') return `${spaces}?`
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
 				let keyStr = key
 				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
@@ -565,17 +427,14 @@ function formatSnapshotInner(snap, options) {
 			const msg = String(node.message ?? '')
 			const extra = Array.isArray(node.entries) && node.entries.length
 				? '\n' + node.entries.map(entry => {
-					if (!entry || typeof entry !== 'object') return ''
 					const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
 					return `  ${key}: ${formatNode(val, objectDepth)}`
-				}).filter(Boolean).join('\n')
+				}).join('\n')
 				: ''
-			const frames = getErrorStackFramesFromSnapshot(node)
-			const headLinePlain = msg ? `${name}: ${msg}` : name
+			const frames = /** @type {import('../shared.d.mts').StackFrame[]} */ node.stack
 			const bodyText = buildErrorStackBodyText(name, msg, frames)
-			const openAfterStack = dedupeFramesMatchingHead(headLinePlain, frames).length > 0
 			if (!colorize)
-				return bodyText + wrapErrorEntriesPlain(extra, { openAfterStack })
+				return bodyText + wrapErrorEntriesPlain(extra, { openAfterStack: frames.length })
 			return formatErrorSnapshotAnsiFromFrames(name, msg, frames, extra, colors)
 		}
 
@@ -631,7 +490,6 @@ function formatSnapshotInner(snap, options) {
 			const spaces = indentUnit.repeat(objectDepth + 1)
 			const nextIndent = indentUnit.repeat(objectDepth)
 			const lines = entries.map(entry => {
-				if (!entry || typeof entry !== 'object') return `${spaces}?`
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
 				if (isArrayLike) return `${spaces}${formatNode(val, objectDepth + 1)}`
 				let keyStr = key
@@ -640,7 +498,6 @@ function formatSnapshotInner(snap, options) {
 				return `${spaces}${keyStr}: ${formatNode(val, objectDepth + 1)}`
 			})
 			const compactLines = entries.map(entry => {
-				if (!entry || typeof entry !== 'object') return '?'
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
 				if (isArrayLike) return formatNode(val, objectDepth + 1)
 				let keyStr = key
@@ -656,12 +513,7 @@ function formatSnapshotInner(snap, options) {
 			return `${prefix}${open}\n${lines.join(',\n')}\n${nextIndent}${close}`
 		}
 
-		try {
-			return JSON.stringify(node)
-		}
-		catch {
-			return String(node)
-		}
+		return JSON.stringify(node)
 	}
 
 	/**

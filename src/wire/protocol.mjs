@@ -15,6 +15,9 @@ export const logWirePayloadTypes = Object.freeze({
 	CLEARED: 'vc_log_cleared',
 })
 
+/** WebSocket.OPEN（浏览器与 ws 一致） */
+export const WS_OPEN = 1
+
 /**
  * 将服务端/同频道下行消息分发给回调。
  * @param {unknown} parsed - `JSON.parse` 得到的根对象。
@@ -29,7 +32,7 @@ export const logWirePayloadTypes = Object.freeze({
  */
 export async function dispatchLogWireMessage(parsed, handlers = {}) {
 	const message = /** @type {Record<string, unknown>} */ parsed
-	const messageType = message.type
+	const messageType = String(message.type)
 	const {
 		onSnapshot,
 		onAppend,

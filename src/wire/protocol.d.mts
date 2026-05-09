@@ -7,12 +7,6 @@ export declare const logWirePayloadTypes: Readonly<{
 	CLEARED: string
 }>
 
-export declare function makeExpandRequest(ref: string): { type: string; ref: string }
-
-export declare function makeClearRequest(): { type: string }
-
-export declare function makeClearedPayload(): { type: string }
-
 export declare function dispatchLogWireMessage(
 	parsed: unknown,
 	handlers?: {

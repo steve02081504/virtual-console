@@ -60,8 +60,7 @@ export function collectPrintfFormatParts(format, args, startArgIndex = 1) {
 	}
 
 	const tail = format.slice(lastIndex)
-	if (tail)
-		parts.push({ kind: 'literal', text: tail })
+	if (tail) parts.push({ kind: 'literal', text: tail })
 
 	return { parts, nextArgIndex: argIndex }
 }
@@ -141,8 +140,7 @@ export function buildArgsSegments(args, expansionScope = null, snapshotDepth = D
 	}
 
 	// 与 Node `console.log` / `util.format` 一致：`util.format` 只有单个字符串参数时原样返回，不解析 `%`。
-	if (args.length === 1)
-		return [{ kind: 'text', text: String(format) }]
+	if (args.length === 1) return [{ kind: 'text', text: String(format) }]
 
 	const segments = /** @type {import('../shared.d.mts').LogSegment[]} */[]
 	const { parts, nextArgIndex } = collectPrintfFormatParts(format, args, 1)
@@ -180,8 +178,7 @@ export function buildArgsSegments(args, expansionScope = null, snapshotDepth = D
 				kind: 'value',
 				snapshot: serializeArgSnapshot(arg, { maxDepth, expansionScope }),
 			})
-		else
-			pushText(coerceString(arg))
+		else pushText(coerceString(arg))
 	}
 
 	return segments

@@ -1,4 +1,4 @@
-import type { BaseVirtualConsoleOptions, LogEntry, WriteAsLevelArg } from './src/shared.d.mts'
+import type { BaseVirtualConsoleOptions, GlobalConsoleRouting, LogEntry, WriteAsLevelArg } from './src/shared.d.mts'
 
 export type {
 	CapturedLogLevel,
@@ -130,7 +130,7 @@ export function getGlobalConsoleResolver(): GlobalConsoleRouting<VirtualConsole>
 /** 全局 `console` 代理对象——所有调用委托给当前上下文中激活的 `VirtualConsole` */
 export const console: VirtualConsole
 
-export * from './src/shared.d.mts'
+export type * from './src/shared.d.mts'
 
 declare global {
 	var console: VirtualConsole

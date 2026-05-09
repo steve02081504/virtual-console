@@ -10,8 +10,7 @@ import { cssStyleStringToAnsiPrefix } from './css-to-ansi.mjs'
 import {
 	formatSnapshotAnsi,
 	formatSnapshotPlain,
-	resolveValueRenderOptions,
-	snapshotToTraceFrames,
+	resolveValueRenderOptions
 } from './snapshot-display.mjs'
 
 /**
@@ -48,21 +47,44 @@ import {
 function traceStackHtml(segment, renderContext) {
 	const traceStackWrapperStyle = renderContext.traceStackWrapperStyle ?? 'color:gray;font-size:0.9em'
 	const traceStackLinkStyle = renderContext.traceStackLinkStyle ?? 'color:inherit;text-decoration:none'
-	const frames = snapshotToTraceFrames(/** @type {{ snapshot: import('../shared.d.mts').ArgSnapshot }} */ segment.snapshot)
-	const stackHtml = frames
-		.map(frame => {
-			const raw = escapeHtml(frame.raw)
-			const resolvedHref = renderContext.resolveTraceFrameHref?.(frame)
-			if (resolvedHref)
-				return `<a href="${escapeHtml(resolvedHref)}" style="${escapeHtml(traceStackLinkStyle)}">${raw}</a>`
-			if (frame.filePath && frame.line > 0) {
-				const url = escapeHtml(`${pathToFileURL(frame.filePath)}:${frame.line}:${frame.column}`)
-				return `<a href="${url}" style="${escapeHtml(traceStackLinkStyle)}">${raw}</a>`
-			}
-			return raw
-		})
-		.join('<br/>\n')
+	const stackHtml = segment.stack.map(frame => {
+		const raw = escapeHtml(frame.raw)
+		const resolvedHref = renderContext.resolveTraceFrameHref?.(frame)
+		if (resolvedHref)
+			return `<a href="${escapeHtml(resolvedHref)}" style="${escapeHtml(traceStackLinkStyle)}">${raw}</a>`
+		if (frame.filePath && frame.line > 0) {
+			const url = escapeHtml(`${pathToFileURL(frame.filePath)}:${frame.line}:${frame.column}`)
+			return `<a href="${url}" style="${escapeHtml(traceStackLinkStyle)}">${raw}</a>`
+		}
+		return raw
+	}).join('<br/>\n')
 	return `<span style="${escapeHtml(traceStackWrapperStyle)}">${stackHtml}</span>`
+}
+
+/**
+ * 统一计算 `value` 片段的 plain 或 ANSI 文本。
+ * @param {import('../shared.d.mts').LogSegment} segment - `kind: 'value'` 片段。
+ * @param {{ indent: string, maxDepth: number, defaultColorize?: boolean }} options - 统一渲染参数。
+ * @param {'ansi' | 'plain'} mode - 目标格式。
+ * @returns {string} 格式化结果。
+ */
+function renderValueSegment(segment, options, mode) {
+	const resolveColorize = mode === 'ansi' ? options.defaultColorize : true
+	const opts = resolveValueRenderOptions(segment, resolveColorize)
+	const depth = Math.min(opts.depth, options.maxDepth)
+	const base = { depth, indent: options.indent }
+	if (mode === 'ansi')
+		return formatSnapshotAnsi(segment.snapshot, { ...base, colorize: opts.colorize })
+	return formatSnapshotPlain(segment.snapshot, base)
+}
+
+/**
+ * 将 trace 快照转为逐帧原始文本。
+ * @param {import('../shared.d.mts').LogSegment} segment - `kind: 'trace'` 片段。
+ * @returns {string} `\n` 拼接的帧文本。
+ */
+function renderTraceRaw(segment) {
+	return segment.stack.map(frame => frame.raw).join('\n')
 }
 
 /**
@@ -106,12 +128,7 @@ export function renderHtml(segments, htmlOptions = {}) {
 			parts.push(terminalChunkToHtml(segment.text))
 
 		else if (segment.kind === 'value') {
-			const opts = resolveValueRenderOptions(segment, supportsAnsi)
-			const ansiInner = formatSnapshotAnsi(segment.snapshot, {
-				depth: Math.min(opts.depth, maxDepth),
-				indent,
-				colorize: opts.colorize,
-			})
+			const ansiInner = renderValueSegment(segment, { indent, maxDepth, defaultColorize: supportsAnsi }, 'ansi')
 			parts.push(terminalChunkToHtml(ansiInner))
 		}
 
@@ -137,15 +154,10 @@ export function renderPlain(segments, plainOptions = {}) {
 		if (segment.kind === 'css') continue
 		if (segment.kind === 'text')
 			parts.push(stripTerminalDecorations(segment.text))
-		else if (segment.kind === 'value') {
-			const opts = resolveValueRenderOptions(segment, true)
-			parts.push(formatSnapshotPlain(segment.snapshot, {
-				depth: Math.min(opts.depth, maxDepth),
-				indent,
-			}))
-		}
+		else if (segment.kind === 'value')
+			parts.push(renderValueSegment(segment, { indent, maxDepth }, 'plain'))
 		else if (segment.kind === 'trace')
-			parts.push(snapshotToTraceFrames(segment.snapshot).map(f => f.raw).join('\n'))
+			parts.push(renderTraceRaw(segment))
 	}
 	return parts.join('')
 }
@@ -186,18 +198,13 @@ export function renderAnsi(segments, ansiOptions = {}) {
 			parts.push(wrapPrintfStyle(t))
 		}
 		else if (segment.kind === 'value') {
-			const opts = resolveValueRenderOptions(segment, baseColorize)
-			const inner = formatSnapshotAnsi(segment.snapshot, {
-				depth: Math.min(opts.depth, maxDepth),
-				indent,
-				colorize: opts.colorize,
-			})
+			const inner = renderValueSegment(segment, { indent, maxDepth, defaultColorize: baseColorize }, 'ansi')
 			parts.push(wrapPrintfStyle(inner))
 		}
 		else if (segment.kind === 'trace') {
-			const frames = snapshotToTraceFrames(segment.snapshot)
-			const inner = frames.map(frame =>
-				baseColorize ? traceStackFrameAnsi(frame) : frame.raw).join('\n')
+			const inner = baseColorize
+				? segment.stack.map(traceStackFrameAnsi).join('\n')
+				: renderTraceRaw(segment)
 			parts.push(wrapPrintfStyle(inner))
 		}
 	}

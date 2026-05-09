@@ -26,8 +26,29 @@ export declare class WireLogEntry {
 	/** 展开后 HTML */
 	renderHtml(options?: { indent?: string; maxDepth?: number }): Promise<string>
 	toJSON(): Record<string, unknown>
-	static from(value: unknown, wire: {
+}
+
+export declare class FreshLineWireLogEntry extends WireLogEntry {
+	readonly method: 'freshLine'
+	readonly id: string
+}
+
+export declare class DirWireLogEntry extends WireLogEntry {
+	readonly method: 'dir'
+}
+
+export declare class TraceWireLogEntry extends WireLogEntry {
+	readonly method: 'trace'
+}
+
+export declare class StreamWireLogEntry extends WireLogEntry {
+	readonly method: 'stdout' | 'stderr'
+}
+
+export declare function createWireLogEntryFromJson(
+	json: unknown,
+	wire: {
 		requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>
 		supportsAnsi?: boolean
-	}): WireLogEntry
-}
+	}
+): WireLogEntry | FreshLineWireLogEntry | DirWireLogEntry | TraceWireLogEntry | StreamWireLogEntry

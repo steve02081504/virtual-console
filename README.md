@@ -5,6 +5,11 @@
 
 Capture and inspect `console` output in tests, UIs, and concurrent work while keeping your existing `console.log` (and other `console` methods) calls unchanged.
 
+## Used by
+
+- [async-eval](https://github.com/steve02081504/async-eval)
+- [fount](https://github.com/steve02081504/fount)
+
 ## Install
 
 ```bash
@@ -31,15 +36,13 @@ The default entry (`.`) re-exports **`VirtualConsole`**, **`console`**, **`defau
 
 ### Subpath entrypoints (recommended for tree-shaking)
 
-| Subpath                                                   | Purpose                                                                                                                                                         |
-| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@steve02081504/virtual-console/node` / `…/browser`       | Full platform API (`VirtualConsole`, `WireLogEntry`, `renderPlain` / `renderAnsi` / `renderHtml`, stack & snapshot helpers, etc.) + environment-accurate types. |
-| `@steve02081504/virtual-console/wire/protocol`            | Log wire `type` constants + `dispatchLogWireMessage`.                                                                                                           |
-| `@steve02081504/virtual-console/wire/server`              | Server-side payload helpers + `createLogWireWebSocketHandler`.                                                                                                  |
-| `@steve02081504/virtual-console/wire/client`              | `connectLogWire` / `attachLogWire`.                                                                                                                             |
-| `@steve02081504/virtual-console/wire/serialize-log-entry` | `serializeLogEntryForWire` only (flat DTO for WebSocket JSON: `segments`, stack metadata; no raw `args`).                                                       |
+- `@steve02081504/virtual-console/node` / `…/browser`: Full platform API (`VirtualConsole`, `WireLogEntry`, `renderPlain` / `renderAnsi` / `renderHtml`, stack & snapshot helpers, etc.) + environment-accurate types.
+- `@steve02081504/virtual-console/wire/protocol`: Log wire `type` constants + `dispatchLogWireMessage`.
+- `@steve02081504/virtual-console/wire/server`: `handleClientWireMessage` + `createLogWireWebSocketHandler`.
+- `@steve02081504/virtual-console/wire/client`: `connectLogWire` / `attachLogWire`.
+- `@steve02081504/virtual-console/wire/serialize-log-entry`: `serializeLogEntryForWire` only (flat DTO for WebSocket JSON: `segments`, stack metadata; no raw `args`).
 
-Import **`serializeLogEntryForWire`** from **`@steve02081504/virtual-console/wire/serialize-log-entry`**, or compose payloads with **`makeAppendPayload` / `makeSnapshotPayload`** from **`wire/server`**. Keep wire-related imports on dedicated **`/wire/*`** entrypoints for clearer boundaries and tree-shaken builds.
+Import **`serializeLogEntryForWire`** from **`@steve02081504/virtual-console/wire/serialize-log-entry`** when you need a flat DTO payload. Keep wire-related imports on dedicated **`/wire/*`** entrypoints for clearer boundaries and tree-shaken builds.
 
 ## Quick start
 
@@ -86,7 +89,7 @@ const vcB = new VirtualConsole();
 
 async function work(id, delayMs) {
   console.log(`start ${id}`);
-  await new Promise((resolve) => setTimeout(resolve, delayMs));
+  await new Promise(resolve => setTimeout(resolve, delayMs));
   console.log(`done ${id}`);
 }
 
@@ -109,7 +112,7 @@ await vc.hookAsyncContext(async () => {
   process.stderr.write('raw stderr\n');
 });
 
-console.log(vc.outputEntries.map((e) => e.level));
+console.log(vc.outputEntries.map(e => e.level));
 // ['stdout', 'stderr']
 ```
 
@@ -120,7 +123,7 @@ const vc = new VirtualConsole({ realConsoleOutput: true });
 
 for (let i = 0; i <= 3; i++) {
   vc.freshLine('build', `Building... ${i}/3`);
-  await new Promise((resolve) => setTimeout(resolve, 120));
+  await new Promise(resolve => setTimeout(resolve, 120));
 }
 vc.log('Build complete');
 ```
@@ -133,11 +136,10 @@ On an ANSI-capable Node TTY, repeated `freshLine('build', ...)` updates one line
 const vc = new VirtualConsole();
 
 vc.writeAs('log', 'normal');
-vc.writeAs('custom-level', 'custom payload');
 vc.writeAs('trace', 'trace marker');
 
 console.log(vc.outputEntries.map((e) => e.level));
-// ['log', 'custom-level', 'debug'] — method name `'trace'` maps to semantic level `debug`
+// ['log', 'debug'] — method name `'trace'` maps to semantic level `debug`
 ```
 
 With `realConsoleOutput: true` on Node, `writeAs` routes warn/error/trace-style levels to stderr and the rest to stdout, similar to `console`.
@@ -164,7 +166,7 @@ const plain = renderPlain(entry.toSegments(), { indent: '  ', maxDepth: 1 });
 // await wireEntry.renderPlain({ indent: '  ', maxDepth: 1 });
 ```
 
-`depth` in `console.dir(value, { depth })` is preserved in the entry’s `value` segment and respected by renderers. `maxDepth` is an additional hard cap at render time; effective depth is `min(dirOptions.depth, maxDepth)`. `indent` controls multi-line indentation (default: tab).
+For `console.dir`, supported inspect-style keys `depth` / `colors` are copied onto the `value` segment as plain JSON (`dirOptions: { depth?, colors? }`), not as an `ArgSnapshot`. `maxDepth` is an additional hard cap at render time; effective depth is `min(dirOptions.depth, maxDepth)`. `indent` controls multi-line indentation (default: tab).
 
 ### Cap memory: `maxLogEntries`
 
@@ -276,10 +278,6 @@ Stable `type` strings live on **`logWirePayloadTypes`** (`vc_*`). Custom frames 
 Wire protocol modules live on dedicated imports: **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, **`/wire/client`**, and **`/wire/serialize-log-entry`**, which also keep tree-shaken builds focused.
 
 Use **`JSON.parse`** on each inbound text frame, then **`await dispatchLogWireMessage`** (callbacks may be `async`). **`onSnapshot`** receives **`entries`**, **`onAppend`** receives **`entry`**, and **`onClear`** is a zero-arg callback. Use **`extensionHandlers`** for custom `type` values (with **`onUnknown`** as fallback). If you use **`attachLogWire`**, handle expand flows through **`requestExpand(ref, maxDepth?)`** (Promise); parsing frames manually is optional.
-
-Use **`makeAppendPayload` / `makeSnapshotPayload` / `makeExpandResponse` / `makeExpandErrorResponse`** from **`@steve02081504/virtual-console/wire/server`** when building messages next to `VirtualConsole`.
-
-Use **`parseClientExpandMessage`** / **`parseClientClearMessage`** for low-level frame parsing when you need to branch before full dispatch.
 
 On the server, **`handleClientWireMessage`** handles inbound **`vc_expand_request`** and returns **`vc_expand_result`**. When a client includes `maxDepth`, it is normalized to a non-negative integer and passed to your expand handler as `(ref, maxDepth)`. For clear flows, use **`createLogWireWebSocketHandler`**, which processes inbound **`vc_clear_request`** and applies `virtualConsole.clear()`.
 

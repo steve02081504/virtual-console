@@ -3,11 +3,7 @@
  */
 import { expandSnapshotRef } from '../core/snapshot.mjs'
 
-import { logWirePayloadTypes } from './protocol.mjs'
-import { serializeLogEntryForWire } from './serialize-log-entry.mjs'
-
-/** WebSocket.OPEN（浏览器与 `ws` 包一致） */
-const WS_OPEN = 1
+import { logWirePayloadTypes, WS_OPEN } from './protocol.mjs'
 
 /**
  * @param {Set<{ readyState: number, send: (data: string) => void }>} clients - 当前客户端集合。
@@ -15,9 +11,9 @@ const WS_OPEN = 1
  * @returns {void}
  */
 function broadcastToOpen(clients, text) {
-	for (const ws of clients)
-		if (ws.readyState === WS_OPEN)
-			ws.send(text)
+	for (const ws of clients) if (ws.readyState === WS_OPEN) try {
+		ws.send(text)
+	} catch { /* ignore send failure */ }
 }
 
 /**
@@ -27,27 +23,19 @@ function broadcastToOpen(clients, text) {
  * @returns {{ type: string, ref: string, ok: boolean, snapshot?: import('../shared.d.mts').ArgSnapshot, error?: string } | null} 非展开消息返回 `null`。
  */
 export function handleClientWireMessage(parsed, handlers = {}) {
-	const expandFn = handlers.expandSnapshotRef ?? expandSnapshotRef
+	const expand = handlers.expandSnapshotRef ?? expandSnapshotRef
 	const message = /** @type {Record<string, unknown>} */ parsed
 	if (message.type !== logWirePayloadTypes.EXPAND_REQUEST)
 		return null
 	const { ref } = message
-	if (typeof ref !== 'string')
-		return null
-	const rawMaxDepth = message.maxDepth
-	const maxDepth = Number.isFinite(rawMaxDepth)
-		? Math.max(0, Math.floor(rawMaxDepth))
-		: undefined
-	const expandResult = maxDepth !== undefined
-		? expandFn(ref, maxDepth)
-		: expandFn(ref)
-	if (expandResult.ok)
-		return {
-			type: logWirePayloadTypes.EXPAND_RESULT,
-			ref,
-			ok: true,
-			snapshot: /** @type {import('../shared.d.mts').ArgSnapshot} */ expandResult.snapshot,
-		}
+	const expandResult = expand(ref, message.maxDepth)
+	if (expandResult.ok) return {
+		type: logWirePayloadTypes.EXPAND_RESULT,
+		ref,
+		ok: true,
+		snapshot: /** @type {import('../shared.d.mts').ArgSnapshot} */ expandResult.snapshot,
+	}
+
 	return {
 		type: logWirePayloadTypes.EXPAND_RESULT,
 		ref,
@@ -64,6 +52,8 @@ export function handleClientWireMessage(parsed, handlers = {}) {
  *   outputEntries: import('../core/entries.mjs').LogEntry[]
  *   addLogEntryListener: (fn: (entry: import('../core/entries.mjs').LogEntry) => void) => void
  *   addClearListener: (fn: () => void) => void
+ *   removeLogEntryListener?: (fn: (entry: import('../core/entries.mjs').LogEntry) => void) => void
+ *   removeClearListener?: (fn: () => void) => void
  *   clear: () => void
  * }} virtualConsole - 带缓冲与监听器的宿主控制台（通常为 `VirtualConsole`）。
  * @param {{
@@ -76,6 +66,7 @@ export function handleClientWireMessage(parsed, handlers = {}) {
  *   broadcastJson: (payload: object) => void,
  *   forEachClient: (fn: (ws: unknown) => void) => void,
  *   closeAllWithFinalJson: (payload: object) => Promise<void>,
+ *   dispose: () => void,
  * }} 供挂载的 `(ws, req) => void`，并附带 `broadcastJson` / `forEachClient` / `closeAllWithFinalJson` 控制面。
  */
 export function createLogWireWebSocketHandler(virtualConsole, wireOptions = {}) {
@@ -86,21 +77,41 @@ export function createLogWireWebSocketHandler(virtualConsole, wireOptions = {}) 
 		clientMessageHandlers = {},
 	} = wireOptions
 	const clients = new Set()
-	virtualConsole.addLogEntryListener((entry) => {
+	/**
+	 * 将新日志条目广播为 `vc_log_append`。
+	 * @param {import('../core/entries.mjs').LogEntry} entry - 宿主新增的日志条目。
+	 * @returns {void}
+	 */
+	const onLogEntry = (entry) => {
 		const payload = JSON.stringify({
 			type: logWirePayloadTypes.APPEND,
-			entry: serializeLogEntryForWire(entry),
+			entry: entry.toJSON(),
 		})
 		broadcastToOpen(clients, payload)
-	})
-	virtualConsole.addClearListener(() => {
+	}
+	/**
+	 * 将 clear 事件广播为 `vc_log_cleared`。
+	 * @returns {void}
+	 */
+	const onClear = () => {
 		broadcastToOpen(clients, JSON.stringify({ type: logWirePayloadTypes.CLEARED }))
-	})
+	}
+	virtualConsole.addLogEntryListener(onLogEntry)
+	virtualConsole.addClearListener(onClear)
+
+	/**
+	 * 显式托管 Promise 拒绝，避免形成未处理 reject。
+	 * @param {void | Promise<void>} maybePromise - 可能的异步结果。
+	 * @returns {void}
+	 */
+	function absorbAsyncError(maybePromise) {
+		void Promise.resolve(maybePromise).catch(() => { })
+	}
 	/**
 	 * @param {{ readyState: number, send: (data: string) => void, on: (ev: string, fn: (...args: unknown[]) => void) => void, close?: (code?: number, reason?: string) => void }} ws - WebSocket 兼容连接。
 	 * @param {unknown} [req] - 升级请求（若有）。
 	 */
-	const handler = async (ws, req) => {
+	const handler = (ws, req) => {
 		/**
 		 * 发送 JSON 回包（当自定义消息处理器返回对象时使用）。
 		 * @param {object | null | void} maybePayload - 可能的回包对象。
@@ -121,57 +132,53 @@ export function createLogWireWebSocketHandler(virtualConsole, wireOptions = {}) 
 		 * @param {Record<string, unknown>} message - 客户端上行 JSON。
 		 * @returns {Promise<void>}
 		 */
-		async function dispatchCustomClientMessage(message) {
+		function dispatchCustomClientMessage(message) {
 			const event = { ws, req, message, clientCount: clients.size }
 			const messageType = message.type
 			if (clientMessageHandlers[messageType])
-				return sendCustomReply(await clientMessageHandlers[messageType](event))
-			sendCustomReply(await onClientMessage?.(event))
+				absorbAsyncError(Promise.resolve(clientMessageHandlers[messageType](event)).then(sendCustomReply))
+			else
+				absorbAsyncError(Promise.resolve(onClientMessage?.(event)).then(sendCustomReply))
 		}
 
 		clients.add(ws)
-		ws.send(JSON.stringify({
+		sendCustomReply({
 			type: logWirePayloadTypes.SNAPSHOT,
-			entries: virtualConsole.outputEntries.map(entry => serializeLogEntryForWire(entry)),
-		}))
-		onClientConnected?.({
+			entries: virtualConsole.outputEntries.map(entry => entry.toJSON()),
+		})
+		absorbAsyncError(onClientConnected?.({
 			ws,
 			req,
 			clientCount: clients.size,
-		})
+		}))
 		ws.on('message', (raw) => {
 			let parsed
 			try {
 				parsed = JSON.parse(String(raw))
-			}
-			catch {
-				return
-			}
+			} catch { return }
 			const wireReply = handleClientWireMessage(parsed)
-			if (wireReply)
-				ws.send(JSON.stringify(wireReply))
+			if (wireReply) sendCustomReply(wireReply)
 			else {
 				const message = /** @type {Record<string, unknown>} */ parsed
 				if (message.type === logWirePayloadTypes.CLEAR_REQUEST)
 					virtualConsole.clear()
-				else dispatchCustomClientMessage(message)
+				else
+					dispatchCustomClientMessage(message)
 			}
 		})
 		ws.on('error', () => {
-			if (clients.delete(ws))
-				onClientDisconnected?.({
-					ws,
-					reason: 'error',
-					clientCount: clients.size,
-				})
+			if (clients.delete(ws)) absorbAsyncError(onClientDisconnected?.({
+				ws,
+				reason: 'error',
+				clientCount: clients.size,
+			}))
 		})
 		ws.on('close', () => {
-			if (clients.delete(ws))
-				onClientDisconnected?.({
-					ws,
-					reason: 'close',
-					clientCount: clients.size,
-				})
+			if (clients.delete(ws)) absorbAsyncError(onClientDisconnected?.({
+				ws,
+				reason: 'close',
+				clientCount: clients.size,
+			}))
 		})
 	}
 
@@ -182,16 +189,9 @@ export function createLogWireWebSocketHandler(virtualConsole, wireOptions = {}) 
 	 */
 	handler.broadcastJson = (payload) => {
 		const text = JSON.stringify(payload)
-		for (const ws of clients) {
-			if (ws.readyState !== WS_OPEN)
-				continue
-			try {
-				ws.send(text)
-			}
-			catch {
-				/* ignore send failure */
-			}
-		}
+		for (const ws of clients) if (ws.readyState === WS_OPEN) try {
+			ws.send(text)
+		} catch { /* ignore send failure */ }
 	}
 
 	/**
@@ -200,8 +200,7 @@ export function createLogWireWebSocketHandler(virtualConsole, wireOptions = {}) 
 	 * @returns {void}
 	 */
 	handler.forEachClient = (fn) => {
-		for (const ws of clients)
-			fn(ws)
+		for (const ws of clients) fn(ws)
 	}
 
 	/**
@@ -213,24 +212,24 @@ export function createLogWireWebSocketHandler(virtualConsole, wireOptions = {}) 
 		const text = JSON.stringify(payload)
 		/** @type {Promise<void>[]} */
 		const closeWaits = []
-		for (const ws of [...clients])
-			try {
-				if (ws.readyState === WS_OPEN)
-					ws.send(text)
-				closeWaits.push(new Promise((resolve) => {
-					if (ws.readyState !== WS_OPEN)
-						resolve()
-					else
-						ws.once('close', resolve)
-				}))
-				if (ws.readyState === WS_OPEN)
-					ws.close()
-			}
-			catch {
-				/* ignore */
-			}
+		for (const ws of [...clients]) try {
+			if (ws.readyState === WS_OPEN) ws.send(text)
+			closeWaits.push(new Promise((resolve) => {
+				if (ws.readyState !== WS_OPEN) resolve()
+				else ws.once('close', resolve)
+			}))
+			if (ws.readyState === WS_OPEN) ws.close()
+		} catch { /* ignore */ }
 
 		await Promise.allSettled(closeWaits)
+	}
+
+	/**
+	 * 移除所有注册的监听器。
+	 */
+	handler.dispose = () => {
+		virtualConsole.removeLogEntryListener?.(onLogEntry)
+		virtualConsole.removeClearListener?.(onClear)
 	}
 
 	return handler

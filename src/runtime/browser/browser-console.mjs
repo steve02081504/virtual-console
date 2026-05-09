@@ -130,7 +130,7 @@ export class VirtualConsole {
 
 	/**
 	 * 创建新的日志条目。
-	 * @param {string} method - 日志方法名或级别（如 log、warn、trace）。
+	 * @param {string} method - 日志方法名（如 log、warn、trace）。
 	 * @param {any[]} args - 与 console 方法收到的原始参数一致。
 	 * @param {import('../../shared.d.mts').StackFrame[] | undefined} [stack] - 可选的预采集调用栈；未传时按当前 skip 配置自动采集。
 	 * @returns {import('../../core/entries.mjs').LogEntry} 新的日志条目对象。
@@ -141,13 +141,13 @@ export class VirtualConsole {
 
 	/**
 	 * 创建日志条目并追加到 outputEntries，自动维护上限并触发回调。
-	 * @param {string} level - 日志级别，例如 log/warn/error。
+	 * @param {string} method - 日志方法名（如 log、warn、trace）。
 	 * @param {any[]} args - 与 console 方法收到的原始参数一致。
 	 * @param {import('../../shared.d.mts').StackFrame[] | undefined} [stack] - 可选的预采集调用栈；未传时按当前 skip 配置自动采集。
 	 * @returns {import('../../core/entries.mjs').LogEntry} 已写入缓冲区的日志条目对象。
 	 */
-	#addEntry(level, args = [], stack = getStackInfo(this.stackFrameSkipCount + VIRTUAL_CONSOLE_ENTRY_STACK_SKIP)) {
-		return this.#pushEntry(this.#newLogEntry(level, args, stack))
+	#addEntry(method, args = [], stack = getStackInfo(this.stackFrameSkipCount + VIRTUAL_CONSOLE_ENTRY_STACK_SKIP)) {
+		return this.#pushEntry(this.#newLogEntry(method, args, stack))
 	}
 
 	/**
@@ -238,12 +238,16 @@ export class VirtualConsole {
 	 * @param {...any} args - 要打印的内容。
 	 */
 	freshLine(id, ...args) {
-		// 在浏览器中无法移动光标，等同于 log
+		this.#addEntry('freshLine', [id, ...args])
+		const previousRecordOutput = this.options.recordOutput
 		try {
+			this.options.recordOutput = false
 			this.stackFrameSkipCount++ // freshLine 自身是额外一层，由 log wrapper 统一处理其余帧
-			this.log(...args)
+			if (this.#baseConsole instanceof VirtualConsole) this.#baseConsole.freshLine(id, ...args)
+			else this.log(...args) // 在浏览器中无法移动光标，等同于 log
 		} finally {
 			this.stackFrameSkipCount--
+			this.options.recordOutput = previousRecordOutput
 		}
 		this.#lastFreshLineId = id
 	}

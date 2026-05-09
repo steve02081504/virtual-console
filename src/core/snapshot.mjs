@@ -42,9 +42,8 @@ const expandEntryFinalizer = new FinalizationRegistry((refs) => {
  * @returns {string} 客户端请求展开时使用的不透明 `ref`。
  */
 function registerExpandSlot(entry, strongTarget) {
-	const ref = typeof crypto !== 'undefined' && crypto.randomUUID
-		? crypto.randomUUID()
-		: `r_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`
+	const ref = globalThis.crypto?.randomUUID?.() ||
+		`r_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`
 	expandRegistry.set(ref, {
 		weakEntryRef: new WeakRef(entry),
 		strongTarget,
@@ -163,7 +162,10 @@ function attachInspectRefIfNeeded(snap, valueObject, walkContext) {
 	const inspectRefIndex = walkContext.circularRefs?.get(valueObject)
 	if (inspectRefIndex === undefined) return snap
 	if (snap === null || typeof snap !== 'object' || Array.isArray(snap)) return snap
-	return /** @type {import('../shared.d.mts').ArgSnapshot} */ { ...snap, inspectRefId: inspectRefIndex }
+	return /** @type {import('../shared.d.mts').ArgSnapshot} */ {
+		...snap,
+		inspectRefId: inspectRefIndex
+	}
 }
 
 /**
@@ -317,6 +319,20 @@ function tryUnwrapForwardingProxy(value) {
 }
 
 /**
+ * 序列化对象的自有可枚举属性（按 `Object.keys` 顺序）。
+ * 读取属性值时使用快照安全读取，避免触发抛错中断整个序列化。
+ * @param {object} targetObject - 待收集属性的对象。
+ * @param {(child: unknown) => import('../shared.d.mts').ArgSnapshot} serializeProperty - 子值序列化函数。
+ * @returns {Array<{ key: string; value: import('../shared.d.mts').ArgSnapshot }>} 键值快照列表。
+ */
+function collectOwnEntries(targetObject, serializeProperty) {
+	const out = []
+	for (const key of Object.keys(targetObject))
+		out.push({ key, value: serializeProperty(getOwnPropertySnapshotValue(targetObject, key)) })
+	return out
+}
+
+/**
  * 按 `Object.prototype.toString` 标签分派对象/Error/容器等结构。
  * @param {unknown} value - 当前值。
  * @param {string} tag - `Object.prototype.toString.call` 类名，如 `[object Array]`。
@@ -341,52 +357,32 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walk) {
 		const err = /** @type {Error & Record<string, unknown>} */ value
 		const entries = []
 		for (const key of Object.keys(err))
-			if (key !== 'stack' && key !== 'message' && key !== 'name')
+			if (!['stack', 'message', 'name'].includes(key))
 				entries.push({ key, value: serializeChild(getOwnPropertySnapshotValue(err, key)) })
-		const frames = parseErrorStack(err, 0)
+		const stack = parseErrorStack(err)
 		return {
 			kind: 'Error',
-			name: err.name || 'Error',
-			message: err.message || '',
-			stack: frames.map(frame => ({
-				functionName: frame.functionName,
-				filePath: frame.filePath,
-				line: frame.line,
-				column: frame.column,
-				raw: frame.raw,
-			})),
+			name: err.name,
+			message: err.message,
+			stack,
 			entries,
 		}
 	}
 	if (tag === '[object Date]') return { kind: 'Date', value: /** @type {Date} */ value.toISOString() }
 	if (tag === '[object RegExp]') return { kind: 'RegExp', value: /** @type {RegExp} */ value.toString() }
 
-	/** @type {(targetObject: object, serializeProperty: (child: unknown) => import('../shared.d.mts').ArgSnapshot) => Array<{ key: string; value: import('../shared.d.mts').ArgSnapshot }>} */
-	const ownEntries = (targetObject, serializeProperty) => {
-		const out = []
-		for (const key of Object.keys(targetObject))
-			out.push({ key, value: serializeProperty(getOwnPropertySnapshotValue(targetObject, key)) })
-		return out
-	}
-
 	if (tag === '[object Number]') {
 		const boxedObject = /** @type {object} */ value
 		const unboxed = Number(boxedObject)
-		const entries = ownEntries(boxedObject, serializeChild)
-		const boxedText =
-			typeof unboxed !== 'number' ? String(unboxed)
-				: Number.isNaN(unboxed) ? 'NaN'
-					: unboxed === Infinity ? 'Infinity'
-						: unboxed === -Infinity ? '-Infinity'
-							: Object.is(unboxed, -0) ? '-0'
-								: String(unboxed)
+		const entries = collectOwnEntries(boxedObject, serializeChild)
+		const boxedText = Object.is(unboxed, -0) ? '-0' : String(unboxed)
 		if (!entries.length) return { kind: 'Number', boxedText }
 		return { kind: 'Number', boxedText, entries }
 	}
 	if (tag === '[object Boolean]') {
 		const boxedObject = /** @type {object} */ value
 		const unboxed = Boolean(boxedObject)
-		const entries = ownEntries(boxedObject, serializeChild)
+		const entries = collectOwnEntries(boxedObject, serializeChild)
 		const boxedText = unboxed ? 'true' : 'false'
 		if (!entries.length) return { kind: 'Boolean', boxedText }
 		return { kind: 'Boolean', boxedText, entries }
@@ -394,7 +390,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walk) {
 	if (tag === '[object String]') {
 		const boxedObject = /** @type {object} */ value
 		const unboxed = String(boxedObject)
-		const entries = ownEntries(boxedObject, serializeChild)
+		const entries = collectOwnEntries(boxedObject, serializeChild)
 		if (!entries.length) return { kind: 'String', boxedString: unboxed }
 		return { kind: 'String', boxedString: unboxed, entries }
 	}
@@ -422,9 +418,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walk) {
 		return { kind: 'array', items: value.map(item => serializeChild(item)) }
 
 	const obj = /** @type {object} */ value
-	const entries = []
-	for (const key of Object.keys(obj))
-		entries.push({ key, value: serializeChild(getOwnPropertySnapshotValue(obj, key)) })
+	const entries = collectOwnEntries(obj, serializeChild)
 	return {
 		kind: obj.constructor?.name || 'object',
 		entries,

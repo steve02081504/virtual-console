@@ -6,6 +6,21 @@ export let passed = 0
  * 本测试运行中累计失败的断言次数。
  */
 export let failed = 0
+/**
+ * 本轮运行中每条失败断言的摘要（与 `failed` 一一对应，供末尾汇总）。
+ * @type {string[]}
+ */
+export const failures = []
+
+/**
+ * 重置计数与失败列表（新一轮完整测试跑数前调用）。
+ * @returns {void}
+ */
+export function resetHarness() {
+	passed = 0
+	failed = 0
+	failures.length = 0
+}
 
 /**
  * 断言条件为真；失败时记录失败计数并输出可读错误。
@@ -19,7 +34,9 @@ export function assert(condition, message) {
 		passed++
 	} else {
 		console.error(`  ✗ FAIL: ${message}`)
+		failures.push(message)
 		failed++
+		debugger
 	}
 }
 
@@ -36,7 +53,9 @@ export function assertEqual(actual, expected, message) {
 		passed++
 	} else {
 		console.error(`  ✗ FAIL: ${message}\n    expected: ${JSON.stringify(expected)}\n    actual:   ${JSON.stringify(actual)}`)
+		failures.push(`${message}\n    expected: ${JSON.stringify(expected)}\n    actual:   ${JSON.stringify(actual)}`)
 		failed++
+		debugger
 	}
 }
 
@@ -53,7 +72,9 @@ export function assertIncludes(str, substr, message) {
 		passed++
 	} else {
 		console.error(`  ✗ FAIL: ${message}\n    "${substr}" not found in "${str}"`)
+		failures.push(`${message}\n    "${substr}" not found in "${str}"`)
 		failed++
+		debugger
 	}
 }
 

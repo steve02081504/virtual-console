@@ -1,4 +1,3 @@
-import { stripOscTitleSequences } from '../format/ansi.mjs'
 import { renderAnsi, renderHtml as renderHtmlFromSegments, renderPlain as renderPlainFromSegments } from '../format/render.mjs'
 import { buildArgsSegments } from '../format/segments.mjs'
 
@@ -17,6 +16,7 @@ import { getStackInfo } from './stack.mjs'
 export function methodNameToLevel(methodName) {
 	return {
 		dir: 'log',
+		freshLine: 'log',
 		trace: 'debug',
 		stdout: 'log',
 		stderr: 'error',
@@ -24,13 +24,13 @@ export function methodNameToLevel(methodName) {
 }
 
 /**
- * 单条日志条目：`segments` 由 {@link LogEntry#toSegments} 按需构造；`stdout`/`stderr` 带 `streamText`。
+ * 单条日志条目：`segments` 由 {@link LogEntry#toSegments} 按需构造；`stdout`/`stderr` 带 `text`。
  */
 export class LogEntry {
 	/**
 	 * @param {object} options - 日志条目选项。
 	 * @param {string} options.method - 日志方法名。
-	 * @param {any[]} options.args - 日志参数；流为 `[streamText]`。
+	 * @param {any[]} options.args - 日志参数；流为 `[text]`。
 	 * @param {ReturnType<typeof getStackInfo>} options.stack - 调用栈。
 	 * @param {number} options.timestamp - 日志时间戳（默认 Date.now()）。
 	 * @param {boolean} options.supportsAnsi - 是否支持 ANSI 序列。
@@ -77,8 +77,7 @@ export class LogEntry {
 	 * @returns {import('../shared.d.mts').ArgSnapshot[]} 与参数个数相同的快照数组。
 	 */
 	serializeArgs(maxDepth = DEFAULT_SNAPSHOT_DEPTH) {
-		return this.args.map(arg =>
-			serializeArgSnapshot(arg, { maxDepth }))
+		return this.args.map(arg => serializeArgSnapshot(arg, { maxDepth }))
 	}
 	/**
 	 * 结构化片段：`log`/`dir`/`trace` 等在末尾含 `{ kind: 'text', text: '\\n' }`；流不含。
@@ -87,7 +86,22 @@ export class LogEntry {
 	toSegments() {
 		const expansionScope = createExpansionScope(this)
 		const maxDepth = DEFAULT_SNAPSHOT_DEPTH
-		return [...buildArgsSegments(this.args, expansionScope, maxDepth), { kind: 'text', text: '\n' }]
+		return [...buildArgsSegments(this.args, expansionScope, maxDepth), {
+			kind: 'text',
+			text: '\n'
+		}]
+	}
+	/**
+	 * JSON 传输视图（默认与 wire 载荷字段对齐，供子类重载扩展）。
+	 * @returns {Record<string, unknown>} JSON 友好对象。
+	 */
+	toJSON() {
+		return {
+			method: this.method,
+			timestamp: this.timestamp,
+			segments: this.toSegments(),
+			stack: this.stack,
+		}
 	}
 }
 
@@ -106,21 +120,31 @@ class StreamLogEntry extends LogEntry {
 	constructor({ method, args = [], stack = [], timestamp = Date.now(), supportsAnsi = false }) {
 		const text = String(args?.[0] ?? '')
 		super({ method, args: [text], stack, timestamp, supportsAnsi })
-		this.streamText = text
+		this.text = text
 	}
 
 	/** @returns {string} 原始流文本（不追加换行）。 */
 	toString() {
-		return this.streamText
+		return this.text
 	}
 
 	/**
 	 * @returns {import('../shared.d.mts').LogSegment[]} 流文本片段；空文本返回空数组。
 	 */
 	toSegments() {
-		const strippedFirst = stripOscTitleSequences(this.streamText)
-		if (!strippedFirst.length) return []
-		return [{ kind: 'text', text: strippedFirst }]
+		return [{ kind: 'text', text: this.text }]
+	}
+}
+
+/**
+ * 将 `console.dir` 第二参数收敛为可 JSON 传输的浅层选项（仅 `depth`、`colors`）。
+ * @param {unknown} raw - 原始 options。
+ * @returns {import('../shared.d.mts').DirOptionsPayload | undefined} 无有效字段时为 `undefined`。
+ */
+function normalizeDirOptionsPayload(raw) {
+	return {
+		depth: raw?.depth ?? DEFAULT_SNAPSHOT_DEPTH,
+		colors: raw?.colors ?? true,
 	}
 }
 
@@ -145,14 +169,11 @@ class DirLogEntry extends LogEntry {
 		const expansionScope = createExpansionScope(this)
 		const maxDepth = DEFAULT_SNAPSHOT_DEPTH
 		const [subject, dirOptions] = this.args
-		const segs = /** @type {import('../shared.d.mts').LogSegment[]} */[{
+		return [{
 			kind: 'value',
 			snapshot: serializeArgSnapshot(subject, { maxDepth, expansionScope }),
-			...dirOptions !== undefined
-				? { dirOptions: serializeArgSnapshot(dirOptions, { maxDepth }) }
-				: {},
-		}]
-		return [...segs, { kind: 'text', text: '\n' }]
+			dirOptions: normalizeDirOptionsPayload(dirOptions),
+		}, { kind: 'text', text: '\n' }]
 	}
 }
 
@@ -178,12 +199,59 @@ class TraceLogEntry extends LogEntry {
 		const maxDepth = DEFAULT_SNAPSHOT_DEPTH
 		const segs = [
 			...buildArgsSegments(this.args, expansionScope, maxDepth),
-			{
-				kind: 'trace',
-				snapshot: serializeArgSnapshot(this.stack, { maxDepth }),
-			},
+			{ kind: 'trace', stack: this.stack },
 		]
 		return [...segs, { kind: 'text', text: '\n' }]
+	}
+}
+
+/**
+ * `console.freshLine` 条目：首个参数为行 id，不进入日志格式化。
+ */
+export class FreshLineLogEntry extends LogEntry {
+	/**
+	 * @param {object} options - 日志条目选项。
+	 * @param {'freshLine'} options.method - 方法名。
+	 * @param {any[]} options.args - 原始参数，首项应为 id。
+	 * @param {ReturnType<typeof getStackInfo>} options.stack - 调用栈。
+	 * @param {number} options.timestamp - 日志时间戳（默认 Date.now()）。
+	 * @param {boolean} options.supportsAnsi - 是否支持 ANSI 序列。
+	 */
+	constructor({ method, args = [], stack = [], timestamp = Date.now(), supportsAnsi = false }) {
+		super({ method, args, stack, timestamp, supportsAnsi })
+		this.id = String(args[0] ?? '')
+	}
+
+	/**
+	 * 参数快照跳过第一个 id 参数，避免污染正文格式化。
+	 * @param {number} [maxDepth=DEFAULT_SNAPSHOT_DEPTH] - 各参数的递归深度上限。
+	 * @returns {import('../shared.d.mts').ArgSnapshot[]} 除 id 外参数的快照数组。
+	 */
+	serializeArgs(maxDepth = DEFAULT_SNAPSHOT_DEPTH) {
+		return this.args.slice(1).map(arg => serializeArgSnapshot(arg, { maxDepth }))
+	}
+
+	/**
+	 * 结构化片段跳过首个 id 参数，和普通 `log` 保持同渲染管线。
+	 * @returns {import('../shared.d.mts').LogSegment[]} 可供渲染器消费的片段。
+	 */
+	toSegments() {
+		const expansionScope = createExpansionScope(this)
+		const maxDepth = DEFAULT_SNAPSHOT_DEPTH
+		return [...buildArgsSegments(this.args.slice(1), expansionScope, maxDepth), {
+			kind: 'text',
+			text: '\n'
+		}]
+	}
+	/**
+	 * freshLine 的 JSON 传输视图：在基类字段上追加 id。
+	 * @returns {Record<string, unknown>} JSON 友好对象。
+	 */
+	toJSON() {
+		return {
+			...super.toJSON(),
+			id: this.id,
+		}
 	}
 }
 
@@ -192,6 +260,7 @@ const methodToConstructorMap = {
 	stderr: StreamLogEntry,
 	dir: DirLogEntry,
 	trace: TraceLogEntry,
+	freshLine: FreshLineLogEntry,
 }
 
 /**
