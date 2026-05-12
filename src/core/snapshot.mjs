@@ -14,6 +14,20 @@ await import('node:util/types').then(module => {
 export const DEFAULT_SNAPSHOT_DEPTH = 5
 
 /**
+ * 从结构化片段解析主调用点：优先首个根级 `Error` 快照栈中带路径的帧，否则回退到捕获栈。
+ * 与 {@link serializeArgSnapshot} 产出的 Error 快照字段对齐；进程内 {@link LogEntry#toSegments} 与线路 `segments` 共用。
+ * @param {import('../shared.d.mts').LogSegment[] | undefined} segments - 结构化片段。
+ * @param {import('../shared.d.mts').StackFrame[]} [stack] - `getStackInfo` 捕获栈。
+ * @returns {import('../shared.d.mts').StackFrame | null}
+ */
+export function resolvePrimaryCallsiteFromSegments(segments, stack) {
+	for (const seg of segments ?? [])
+		if (seg?.kind === 'value' && seg?.snapshot?.kind === 'Error')
+			return seg.snapshot.stack.find(f => f?.filePath) ?? null
+	return stack?.find(f => f?.filePath) ?? null
+}
+
+/**
  * 惰性展开 ref → 弱引用条目与强引用截断对象。
  * @type {Map<string, { weakEntryRef: WeakRef<object>, strongTarget: object }>}
  */

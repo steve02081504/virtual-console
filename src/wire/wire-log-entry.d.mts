@@ -13,7 +13,7 @@ export declare class WireLogEntry {
 	supportsAnsi: boolean
 	/** 日志片段数组（展开时会就地替换 truncated 占位） */
 	segments: LogSegment[]
-	/** 第一条带路径的栈帧，便于展示来源 */
+	/** 展示来源：优先片段中首个 Error 的栈帧，否则为捕获调用栈中第一条 */
 	readonly primaryCallsite: StackFrame | null
 	constructor(payload: Record<string, unknown>, wire: {
 		requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>

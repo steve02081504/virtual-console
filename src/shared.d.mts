@@ -94,7 +94,7 @@ export interface LogEntry {
 	stack: StackFrame[]
 	/** 日志记录时的 Unix 时间戳（毫秒） */
 	timestamp: number
-	/** 第一条带路径的栈帧，便于展示来源 */
+	/** 展示来源：优先片段中首个 Error 的栈帧，否则为捕获调用栈中第一条 */
 	readonly primaryCallsite: StackFrame | null
 	/** 宿主是否允许 ANSI（影响 `value`/`trace` 等着色与 OSC8） */
 	supportsAnsi: boolean

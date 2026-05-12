@@ -1,6 +1,7 @@
 import supportsAnsiDefault from 'supports-ansi'
 
 import { methodNameToLevel } from '../core/entries.mjs'
+import { resolvePrimaryCallsiteFromSegments } from '../core/snapshot.mjs'
 import { renderAnsi, renderHtml, renderPlain } from '../format/render.mjs'
 
 import {
@@ -52,9 +53,9 @@ export class WireLogEntry {
 		this.supportsAnsi = wire.supportsAnsi ?? supportsAnsiDefault
 	}
 
-	/** @returns {import('../shared.d.mts').StackFrame | null} 第一条带路径的栈帧。 */
+	/** @returns {import('../shared.d.mts').StackFrame | null} 展示来源：优先片段中首个 Error 的栈帧，否则为捕获调用栈中第一条。 */
 	get primaryCallsite() {
-		return this.stack?.find((frame) => frame?.filePath) ?? null
+		return resolvePrimaryCallsiteFromSegments(this.segments, this.stack)
 	}
 
 	/**

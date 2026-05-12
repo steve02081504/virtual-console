@@ -4,6 +4,7 @@ import { buildArgsSegments } from '../format/segments.mjs'
 import {
 	DEFAULT_SNAPSHOT_DEPTH,
 	createExpansionScope,
+	resolvePrimaryCallsiteFromSegments,
 	serializeArgSnapshot,
 } from './snapshot.mjs'
 import { getStackInfo } from './stack.mjs'
@@ -44,11 +45,11 @@ export class LogEntry {
 		this.args = args
 	}
 	/**
-	 * 第一条带源路径的栈帧，便于展示调用来源。
+	 * 展示来源：优先片段中首个 Error 的栈帧，否则为捕获调用栈中第一条。
 	 * @returns {import('../shared.d.mts').StackFrame | null} 无路径帧时为 null。
 	 */
 	get primaryCallsite() {
-		return this.stack?.find(frame => frame?.filePath) ?? null
+		return resolvePrimaryCallsiteFromSegments(this.toSegments(), this.stack)
 	}
 	/**
 	 * 终端 ANSI 串（`stdout`/`stderr` 为原始流文本）。
