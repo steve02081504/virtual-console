@@ -1,5 +1,6 @@
 *.lock
 /node_modules
+/.vscode
 .gitignore
 .npmignore
 test/
