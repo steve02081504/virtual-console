@@ -52,7 +52,8 @@ export interface ArgSnapshotTruncated {
 
 /**
  * `serializeArgSnapshot` / `toSegments` 产生的 JSON 可传输快照（含 `truncated`）。
- * `kind: 'Error'` 时含 **`name`**、**`message`**、**`stack`**（由 `parseErrorStack(error)` 得到的帧数组，平铺字段与 {@link StackFrame} 一致；**不**存原始 `error.stack` 字符串）；另有 **`entries`** 承载其它自有枚举属性。
+ * - `kind: 'Error'` — **`name`**、**`message`**、**`stack`**（由 `parseErrorStack(error)` 得到的帧数组，平铺字段与 {@link StackFrame} 一致；**不**存原始 `error.stack` 字符串）；另有 **`entries`** 承载其它自有枚举属性。
+ * - `kind: 'Date'` — **`value`** 为 `Date#getTime()` 毫秒数（无效 Date 为 **`NaN`**）。经 `JSON.stringify` 往返后无效日期的 `NaN` 变为 **`null`**；渲染时格式化为与 Node `util.inspect` 一致的 ISO 字符串或 **`Invalid Date`**（**不**在快照里存 ISO 字符串）。
  */
 export type ArgSnapshot = Record<string, unknown> | ArgSnapshotTruncated
 

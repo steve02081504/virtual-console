@@ -382,7 +382,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walk) {
 			entries,
 		}
 	}
-	if (tag === '[object Date]') return { kind: 'Date', value: /** @type {Date} */ value.toISOString() }
+	if (tag === '[object Date]') return { kind: 'Date', value: /** @type {Date} */ value.getTime() }
 	if (tag === '[object RegExp]') return { kind: 'RegExp', value: /** @type {RegExp} */ value.toString() }
 
 	if (tag === '[object Number]') {

@@ -91,13 +91,35 @@ function testCrossRealmSnapshotKinds() {
 	const crossRealmDate = vm.runInNewContext('new Date("2026-05-04T13:32:05.473Z")')
 	const dateSnap = serializeArgSnapshot(crossRealmDate)
 	assertEqual(dateSnap.kind, 'Date', '跨 realm Date.kind')
-	assertEqual(dateSnap.value, '2026-05-04T13:32:05.473Z', '跨 realm Date.value 为 ISO')
+	assertEqual(dateSnap.value, crossRealmDate.getTime(), '跨 realm Date.value 为 getTime()')
+	assertEqual(
+		renderPlain([{ kind: 'value', snapshot: dateSnap }]),
+		util.inspect(crossRealmDate, { colors: false }),
+		'有效 Date plain 与 util.inspect 一致',
+	)
 	assert(renderAnsi([{ kind: 'value', snapshot: dateSnap }], { colorize: true }).includes('\x1b[35m'), '跨 realm Date ANSI 为紫色')
 	const crossRealmRegExp = vm.runInNewContext('/as/')
 	const regSnap = serializeArgSnapshot(crossRealmRegExp)
 	assertEqual(regSnap.kind, 'RegExp', '跨 realm RegExp.kind')
 	assertEqual(regSnap.value, '/as/', '跨 realm RegExp.value')
 	assert(renderAnsi([{ kind: 'value', snapshot: regSnap }], { colorize: true }).includes('\x1b[31m'), '跨 realm RegExp ANSI 为红色')
+	const invalidDate = new Date(NaN)
+	const invalidDateSnap = serializeArgSnapshot(invalidDate)
+	assertEqual(invalidDateSnap.kind, 'Date', '无效 Date.kind')
+	assert(Number.isNaN(invalidDateSnap.value), '无效 Date.value 为 NaN')
+	assertEqual(
+		renderPlain([{ kind: 'value', snapshot: invalidDateSnap }]),
+		util.inspect(invalidDate, { colors: false }),
+		'无效 Date plain 与 util.inspect 一致',
+	)
+	const nestedInvalidDateSnap = serializeArgSnapshot({ d: new Date('invalid') })
+	assert(Number.isNaN(nestedInvalidDateSnap.entries?.[0]?.value?.value), '嵌套无效 Date 不抛错')
+	const jsonRoundtripDateSnap = JSON.parse(JSON.stringify(invalidDateSnap))
+	assertEqual(
+		renderPlain([{ kind: 'value', snapshot: jsonRoundtripDateSnap }]),
+		util.inspect(invalidDate, { colors: false }),
+		'JSON 往返后无效 Date 仍渲染为 Invalid Date',
+	)
 	const crossNum = vm.runInNewContext('new Number(0)')
 	const numSnap = serializeArgSnapshot(crossNum)
 	assertEqual(numSnap.kind, 'Number', '跨 realm 装箱 Number.kind')

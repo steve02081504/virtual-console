@@ -279,6 +279,22 @@ function formatErrorSnapshotAnsiFromFrames(name, msg, frames, extraRendered, col
 }
 
 /**
+ * 将 Date 快照的毫秒值格式化为与 `util.inspect` 一致的展示文本。
+ * wire 反序列化后无效 Date 的 `NaN` 会变成 `null`。
+ * @param {unknown} ms - `Date#getTime()` 或 JSON 还原后的值。
+ * @returns {string} ISO 字符串或 `Invalid Date`。
+ */
+function formatDateSnapshotValue(ms) {
+	if (typeof ms !== 'number' || Number.isNaN(ms)) return 'Invalid Date'
+	try {
+		return new Date(/** @type {number} */ ms).toISOString()
+	}
+	catch {
+		return 'Invalid Date'
+	}
+}
+
+/**
  * @param {unknown} snap - 任意快照。
  * @param {FormatSnapshotOptions} options - 格式选项（含 `depth`、`colorize`）。
  * @returns {string} 单棵快照树对应的展示文本。
@@ -399,7 +415,7 @@ function formatSnapshotInner(snap, options) {
 		}
 
 		if (node.kind === 'Date')
-			return `${colors.magenta}${node.value}${colors.reset}`
+			return `${colors.magenta}${formatDateSnapshotValue(node.value)}${colors.reset}`
 
 		if (node.kind === 'RegExp')
 			return `${colors.red}${node.value}${colors.reset}`
