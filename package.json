@@ -1,6 +1,6 @@
 {
 	"name": "@steve02081504/virtual-console",
-	"version": "0.2.12",
+	"version": "0.2.13",
 	"description": "A virtual console for capturing and manipulating terminal output.",
 	"main": "main.mjs",
 	"type": "module",
@@ -68,5 +68,13 @@
 		"color-name": "latest",
 		"full-proxy": "latest",
 		"supports-ansi": "latest"
+	},
+	"devDependencies": {
+		"@steve02081504/async-eval": "latest"
+	},
+	"overrides": {
+		"@steve02081504/async-eval": {
+			"@steve02081504/virtual-console": "$@steve02081504/virtual-console"
+		}
 	}
 }

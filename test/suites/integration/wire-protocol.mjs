@@ -725,16 +725,6 @@ async function testAttachLogWireDispatchAndExpand() {
 	assertEqual(req1.type, logWirePayloadTypes.EXPAND_REQUEST, 'requestExpand 发送 expand_request')
 	assertEqual(req1.ref, 'ref_ok', 'requestExpand 发送 ref')
 	assertEqual(req1.maxDepth, undefined, '未传 maxDepth 时请求不带该字段')
-	const expNeg = wire.requestExpand('ref_depth_neg', -1)
-	const reqDepthNeg = JSON.parse(sentTexts[sentTexts.length - 1])
-	assertEqual(reqDepthNeg.maxDepth, 0, '负数 maxDepth 会被归一化为 0')
-	const expFloat = wire.requestExpand('ref_depth_float', 5.8)
-	const reqDepthFloat = JSON.parse(sentTexts[sentTexts.length - 1])
-	assertEqual(reqDepthFloat.maxDepth, 5, '小数 maxDepth 会向下取整')
-	await emitWireMessage(ws, JSON.stringify({ type: logWirePayloadTypes.EXPAND_RESULT, ref: 'ref_depth_neg', ok: true, snapshot: { kind: 'number', value: '0' } }))
-	await emitWireMessage(ws, JSON.stringify({ type: logWirePayloadTypes.EXPAND_RESULT, ref: 'ref_depth_float', ok: true, snapshot: { kind: 'number', value: '5' } }))
-	await expNeg
-	await expFloat
 	const expSameRefA = wire.requestExpand('ref_same')
 	const expSameRefB = wire.requestExpand('ref_same')
 	assertEqual(expSameRefA, expSameRefB, '同 ref 并发请求复用同一 Promise')

@@ -1,8 +1,12 @@
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
 import {
 	VirtualConsole,
 	getStackInfo,
 } from '@steve02081504/virtual-console'
 
+import { parseStackTraceLine, pathToFileURL, stackFrameToOsc8Href } from '../../../src/core/stack.mjs'
 import { assert, assertEqual, runTestGroup } from '../../harness.mjs'
 
 /**
@@ -96,6 +100,74 @@ async function testGetStackInfo() {
 }
 
 /**
+ * `eval at …` / AsyncFunction 栈行：畸形路径不得抛错；可解析时指向宿主文件行列。
+ */
+function testParseStackTraceLineEvalAtFrames() {
+	console.log('\n=== [parseStackTraceLine：eval at / AsyncFunction 栈] ===')
+
+	const hostFile = realpathSync(fileURLToPath(import.meta.url))
+	const hostUrl = pathToFileURL(hostFile)
+	const hostBase = hostFile.replace(/\\/g, '/').split('/').pop()
+
+	/** @param {string} line @returns {void} */
+	const assertNoThrow = line => {
+		parseStackTraceLine(line)
+	}
+
+	assertNoThrow(`    at eval (eval at <anonymous> (${hostUrl}:151:40), <anonymous>:3:13)`)
+	assertNoThrow('    at eval (eval at <anonymous> (file:///C:/missing/async-eval/deno.mjs:151:40), <anonymous>:3:13)')
+	assertNoThrow('    at eval (eval at <anonymous> (deno.mjs:151:40), <anonymous>:3:13)')
+
+	const resolved = parseStackTraceLine(`    at eval (eval at <anonymous> (${hostUrl}:151:40), <anonymous>:3:13)`)
+	assertEqual(resolved.functionName, 'eval', 'eval-at 帧 functionName')
+	assert(resolved.filePath.replace(/\\/g, '/').endsWith(hostBase), `eval-at 帧 filePath 指向宿主文件，实际：${resolved.filePath}`)
+	assertEqual(resolved.line, 151, 'eval-at 帧 line 为宿主行')
+	assertEqual(resolved.column, 40, 'eval-at 帧 column 为宿主列')
+	assert(stackFrameToOsc8Href(resolved).length > 0, 'eval-at 宿主帧可生成 OSC8 href')
+
+	const plainHost = parseStackTraceLine('    at eval (eval at run (/tmp/host.mjs:10:1), <anonymous>:2:3)')
+	assertEqual(plainHost.functionName, 'eval', '普通路径 eval-at functionName')
+	assertEqual(plainHost.filePath, '/tmp/host.mjs', '普通路径 eval-at filePath')
+	assertEqual(plainHost.line, 10, '普通路径 eval-at line')
+	assertEqual(plainHost.column, 1, '普通路径 eval-at column')
+
+	const missing = parseStackTraceLine('    at eval (eval at <anonymous> (file:///C:/missing/async-eval/deno.mjs:151:40), <anonymous>:3:13)')
+	assertEqual(missing.filePath, '', '不存在宿主 file:// 时 filePath 为空')
+	assertEqual(missing.line, 3, '不存在宿主时保留 <anonymous> 行')
+	assertEqual(missing.column, 13, '不存在宿主时保留 <anonymous> 列')
+	assertEqual(stackFrameToOsc8Href(missing), '', '不可链接帧无 OSC8 href')
+
+	const malformed = parseStackTraceLine('    at eval (eval at <anonymous> (deno.mjs:151:40), <anonymous>:3:13)')
+	assertEqual(malformed.filePath, 'deno.mjs', 'eval-at 普通宿主路径保留')
+	assertEqual(malformed.line, 151, 'eval-at 普通宿主 line')
+	assertEqual(malformed.column, 40, 'eval-at 普通宿主 column')
+	assertEqual(malformed.functionName, 'eval', 'eval-at 普通宿主 functionName')
+
+	const anonymousOnly = parseStackTraceLine('    at foo (<anonymous>:1:1)')
+	assertEqual(anonymousOnly.filePath, '', '<anonymous> 帧无 filePath')
+	assertEqual(anonymousOnly.line, 1, '<anonymous> 帧保留行列')
+}
+
+/**
+ * AsyncFunction 内 console.log 不得因 stack 解析抛错而中断（async-eval / Deno 场景）。
+ */
+async function testAsyncFunctionConsoleLogDoesNotThrow() {
+	console.log('\n=== [AsyncFunction + console.log 栈容错] ===')
+
+	const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+
+	await vc.hookAsyncContext(async () => {
+		const fn = new AsyncFunction('console.log(\'async-fn-stack-marker\')')
+		await fn()
+	})
+
+	assertEqual(vc.outputEntries.length, 1, 'AsyncFunction 内 console.log 应成功捕获')
+	assertEqual(vc.outputEntries[0].args[0], 'async-fn-stack-marker', '捕获内容正确')
+	assert(Array.isArray(vc.outputEntries[0].stack), 'log 条目含 stack 数组')
+}
+
+/**
  * logEntry.stack：console.log 与 stdout 捕获的首帧均指向本测试用户代码（非运行时内部栈）。
  */
 async function testLogEntryStack() {
@@ -156,6 +228,8 @@ export async function runRuntimeAndContextTests() {
 		testContextIsolation,
 		testConcurrentAsyncIsolation,
 		testGetStackInfo,
+		testParseStackTraceLineEvalAtFrames,
+		testAsyncFunctionConsoleLogDoesNotThrow,
 		testLogEntryStack,
 	])
 }

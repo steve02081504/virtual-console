@@ -43,11 +43,40 @@ if (!globalThis.document) await Promise.all([
 ]).catch(() => { })
 
 /**
+ * 将栈帧路径段解析为可链接的本地路径；不可解析时返回空串（不抛错）。
+ * @param {string} filePath - 正则捕获的路径段。
+ * @returns {string} 规范化后的本地路径，或空串。
+ */
+function resolveStackFilePath(filePath) {
+	if (/^eval\b/.test(filePath) || filePath === '<anonymous>') return ''
+	if (filePath.startsWith('file://')) try {
+		return realpathSync(fileURLToPath(filePath))
+	} catch {
+		return ''
+	}
+	return filePath
+}
+
+/**
  * 解析单行 stack 文本，规则与 {@link getStackInfo} 一致（用于 Error 栈着色 / OSC8）。
  * @param {string} line - V8 等引擎输出的单行栈帧。
  * @returns {import('../shared.d.mts').StackFrame} 解析失败时仅含 `raw`，路径字段为空。
  */
 export function parseStackTraceLine(line) {
+	const evalAtMatch = line.match(/at\s+(?<functionName>\S+)\s+\(eval at\s+(?<hostName>\S+)\s+\((?<hostPath>[^)]+):(?<hostLine>\d+):(?<hostCol>\d+)\),\s*<anonymous>:(?<line>\d+):(?<column>\d+)\)$/)
+	if (evalAtMatch?.groups) {
+		const { functionName, hostPath, hostLine, hostCol, line: lineStr, column } = evalAtMatch.groups
+		/** @type {import('../shared.d.mts').StackFrame} */
+		const result = { functionName, filePath: '', line: Number(lineStr), column: Number(column), raw: line }
+		const resolved = resolveStackFilePath(hostPath)
+		if (resolved) {
+			result.filePath = resolved
+			result.line = Number(hostLine)
+			result.column = Number(hostCol)
+		}
+		return result
+	}
+
 	const match = line.match(/at\s+(?:(?<functionName>.*)\s+)?\((?<filePath>.*?):(?<line>\d+):(?<column>\d+)\)?$/) ||
 		line.match(/(?:(?<functionName>.*)\s+)?@(?<filePath>.*?):(?<line>\d+):(?<column>\d+)$/) ||
 		line.match(/at\s+(?<filePath>\S+):(?<line>\d+):(?<column>\d+)$/)
@@ -63,7 +92,7 @@ export function parseStackTraceLine(line) {
 	const { functionName, filePath, line: lineStr, column } = match.groups
 	if (functionName !== undefined) result.functionName = functionName
 	if (filePath) {
-		result.filePath = filePath.startsWith('file://') ? realpathSync(fileURLToPath(filePath)) : filePath
+		result.filePath = resolveStackFilePath(filePath)
 		result.line = Number(lineStr)
 		result.column = Number(column)
 	}

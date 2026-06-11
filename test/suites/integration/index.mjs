@@ -1,5 +1,6 @@
 import { passed, failed, failures, resetHarness } from '../../harness.mjs'
 
+import { runDenoAsyncEvalTests } from './deno-async-eval.mjs'
 import { runRuntimeAndContextTests } from './runtime-and-context.mjs'
 import { runSnapshotAndRenderingTests } from './snapshot-and-rendering.mjs'
 import { runVirtualConsoleTests } from './virtual-console.mjs'
@@ -15,6 +16,7 @@ export async function runAllTests() {
 	await runVirtualConsoleTests()
 	await runSnapshotAndRenderingTests()
 	await runWireProtocolTests()
+	await runDenoAsyncEvalTests()
 
 	console.log(`\n${'='.repeat(50)}`)
 	if (failed === 0)

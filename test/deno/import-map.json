@@ -1,0 +1,9 @@
+{
+	"imports": {
+		"@steve02081504/virtual-console": "../../main.mjs",
+		"acorn": "../../node_modules/acorn/dist/acorn.mjs",
+		"ast-types-x": "../../node_modules/ast-types-x/lib/main.js",
+		"astring": "../../node_modules/astring/dist/astring.mjs",
+		"estree-walker": "../../node_modules/estree-walker/src/index.js"
+	}
+}
