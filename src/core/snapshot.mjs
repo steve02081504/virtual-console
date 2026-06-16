@@ -7,7 +7,11 @@ import { parseErrorStack } from './stack.mjs'
  */
 let isProxyInstance = (value) => false
 await import('node:util/types').then(module => {
-	isProxyInstance = module.isProxy
+	const candidate = module.isProxy
+	// 浏览器垫片（如 esm.sh/unenv）会把未实现的 isProxy 做成“调用即抛错”的桩函数，
+	// import() 本身不抛错，故需实际探测一次；不可用时维持恒 false 回退而非直接采用。
+	if (globalThis.document) candidate({})
+	isProxyInstance = candidate
 }).catch(() => 0)
 
 /** 参数快照默认深度（log / dir / 线路一致） */
