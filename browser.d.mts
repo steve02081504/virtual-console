@@ -34,7 +34,7 @@ export class VirtualConsole {
 	readonly outputs: string
 	/** 所有捕获输出拼接成的 HTML 字符串 */
 	readonly outputsHtml: string
-	/** 结构化日志条目数组 */
+	/** 结构化日志条目数组（`block` 期间可暂时超出 `maxLogEntries`，`unblock` 后裁回） */
 	outputEntries: LogEntry[]
 	/** 最终合并后的配置项（日志监听请用 {@link addLogEntryListener} / {@link removeLogEntryListener}） */
 	options: Required<Omit<VirtualConsoleOptions, 'baseConsole'>> & {
@@ -47,6 +47,8 @@ export class VirtualConsole {
 	 * 以确保 `entry.stack` 指向真正的调用方而非包装层。
 	 */
 	stackFrameSkipCount: number
+	/** 是否处于 `block` 状态（嵌套深度大于 0） */
+	readonly blocked: boolean
 
 	constructor(options?: VirtualConsoleOptions)
 
@@ -61,6 +63,18 @@ export class VirtualConsole {
 
 	/** 移除由 {@link addClearListener} 注册的回调 */
 	removeClearListener(fn: () => void): void
+
+	/**
+	 * 进入 block：本地记录与监听照常，实际输出（含向 `baseConsole` 的转发）入队延后；可重入。
+	 * block 期间 `outputEntries` 可不裁剪到 `maxLogEntries`。
+	 */
+	block(): void
+
+	/**
+	 * 退出一层 block；深度归零时按序重放待输出内容（含 `clear` 标记）并恢复长度限制。
+	 * 深度已为 0 时再调用为未定义行为（实现上幂等）。
+	 */
+	unblock(): void
 
 	/**
 	 * 传入函数时，使用 save/restore 机制在函数内将 `console` 绑定到此实例，
@@ -84,7 +98,8 @@ export class VirtualConsole {
 
 	/**
 	 * 清空 `outputEntries` 并重置 `freshLine` 状态。
-	 * 若 `realConsoleOutput` 为 `true`，也会调用底层控制台的 `clear()`。
+	 * 若 `realConsoleOutput` 为 `true`，也会调用底层控制台的 `clear()`
+	 * （`block` 期间将 clear 标记入队，`unblock` 时按序重放）。
 	 * 清空完成后同步调用 {@link addClearListener} 注册的回调。
 	 */
 	clear(): void

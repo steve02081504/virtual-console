@@ -1,7 +1,7 @@
 import supportsAnsiDefault from 'supports-ansi'
 
-import { methodNameToLevel } from '../core/entries.mjs'
-import { resolvePrimaryCallsiteFromSegments } from '../core/snapshot.mjs'
+import { methodNameToLevel } from '../core/entries/level.mjs'
+import { resolvePrimaryCallsiteFromSegments } from '../core/stack.mjs'
 import { renderAnsi, renderHtml, renderPlain } from '../format/render.mjs'
 
 import {

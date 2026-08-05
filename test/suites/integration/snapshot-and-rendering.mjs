@@ -55,7 +55,7 @@ function testRenderPrintfPlain() {
 	assertEqual(renderPrintfPlain([]), '', '空参数返回空字符串')
 	assertEqual(renderPrintfPlain(['hello']), 'hello', '单字符串正确返回')
 	assertEqual(renderPrintfPlain(['%s', 'world']), 'world', '%s 格式化正确')
-	assertEqual(renderPrintfPlain(['%d', 42]), '42', '%d 格式化正确')
+	assertEqual(renderPrintfPlain(['%d', 72]), '72', '%d 格式化正确')
 	assertEqual(renderPrintfPlain(['%f', 3.14]), '3.14', '%f 格式化正确')
 	assertEqual(renderPrintfPlain(['%f', Symbol('x')]), 'NaN', '%f 对 Symbol 返回 NaN')
 	assertEqual(renderPrintfPlain(['%d', Symbol('x')]), 'NaN', '%d 对 Symbol 返回 NaN')
@@ -80,7 +80,7 @@ function testRenderPrintfPlain() {
 	assertIncludes(traceResult, 'debug', 'renderPrintfPlain(LogEntry) 文本包含 level 语义')
 	assertIncludes(traceResult, 'trace', 'renderPrintfPlain(LogEntry) 文本含 method 信息')
 	assertIncludes(traceEntry.toString(), 'trace label', 'LogEntry trace toString 含消息')
-	assertIncludes(traceResult, 'testFormatArgs', 'renderPrintfPlain 结果含栈帧函名信息')
+	assertIncludes(traceEntry.toString(), 'testFormatArgs', 'trace toString 含栈帧函名信息')
 }
 
 /**
@@ -388,6 +388,53 @@ async function testTruncatedAndExpand() {
 }
 
 /**
+ * 验证同一 entry 多次 toSegments 复用展开 ref，且仍可 expand。
+ */
+async function testExpansionScopeReuseAcrossToSegments() {
+	console.log('\n=== [同一 entry 多次 toSegments 复用展开 ref] ===')
+	let deep = { l: 'leaf' }
+	for (let i = 0; i < 10; i++) deep = { nest: deep }
+	const entry = newLogEntry({ method: 'log', args: [deep], stack: [], supportsAnsi: false })
+	/**
+	 * 在快照树中递归查找首个 `truncated.ref` 字符串。
+	 * @param {unknown} snap - 快照节点或子树。
+	 * @returns {string} 找到的 ref，无则为空串。
+	 */
+	function findTruncatedRef(snap) {
+		if (!snap || typeof snap !== 'object') return ''
+		const node = /** @type {Record<string, unknown>} */ snap
+		if (node.kind === 'truncated' && typeof node.ref === 'string' && node.ref) return node.ref
+		for (const child of Object.values(node)) {
+			const found = findTruncatedRef(child)
+			if (found) return found
+		}
+		return ''
+	}
+	/**
+	 * 从 `toSegments()` 结果中取第一个 truncated ref。
+	 * @param {import('../../../src/shared.d.mts').LogSegment[]} segments - 结构化片段数组。
+	 * @returns {string} 首个 ref，无则为空串。
+	 */
+	function firstRef(segments) {
+		for (const segment of segments)
+			if (segment.kind === 'value') {
+				const ref = findTruncatedRef(segment.snapshot)
+				if (ref) return ref
+			}
+
+		return ''
+	}
+	const first = entry.toSegments()
+	const second = entry.toSegments()
+	const refFirst = firstRef(first)
+	const refSecond = firstRef(second)
+	assert(refFirst.length > 0, '首次 toSegments 含 truncated.ref')
+	assertEqual(refFirst, refSecond, '再次 toSegments 复用同一 truncated.ref')
+	const expanded = expandSnapshotRef(refFirst)
+	assert(expanded.ok === true, '复用后的 ref 仍可 expandSnapshotRef')
+}
+
+/**
  * 运行“快照与渲染一致性”分组测试。
  */
 export async function runSnapshotAndRenderingTests() {
@@ -409,6 +456,7 @@ export async function runSnapshotAndRenderingTests() {
 		testErrorSnapshotStackFramesShape,
 		testErrorSnapshotNoStackBrackets,
 		testTruncatedAndExpand,
+		testExpansionScopeReuseAcrossToSegments,
 		testPathToFileURLWindowsDriveUnescapedColon,
 		testCssHex4DigitAlphaDim,
 	])

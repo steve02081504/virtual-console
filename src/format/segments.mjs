@@ -5,11 +5,14 @@
 import {
 	DEFAULT_SNAPSHOT_DEPTH,
 	serializeArgSnapshot,
-} from '../core/snapshot.mjs'
+} from '../core/snapshot/serialize.mjs'
 
 import {
 	coerceString,
 } from './ansi.mjs'
+
+/** 普通 console 条目末尾换行片段（流条目不含）。 */
+export const ENTRY_TRAILING_NEWLINE = Object.freeze({ kind: 'text', text: '\n' })
 
 /** @typedef {{ kind: 'literal', text: string }} PrintfLiteralPart */
 /** @typedef {{ kind: 'arg', spec: string, value: any }} PrintfArgPart */

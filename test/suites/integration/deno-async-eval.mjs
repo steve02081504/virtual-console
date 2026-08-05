@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { VirtualConsole } from '@steve02081504/virtual-console'
 
@@ -25,15 +25,15 @@ async function testAsyncEvalConsoleLogOnNode() {
 
 	const { async_eval } = await import('@steve02081504/async-eval')
 
-	/** @returns {VirtualConsole} */
+	/** @returns {VirtualConsole} 仅记录、不转发输出的 VirtualConsole。 */
 	const quietConsole = () => new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
-	const pure = await async_eval('42', { console: quietConsole() })
-	assertEqual(pure.result, 42, '纯表达式求值成功')
+	const pure = await async_eval('72', { console: quietConsole() })
+	assertEqual(pure.result, 72, '纯表达式求值成功')
 	assertEqual(pure.error, undefined, '纯表达式无 error')
 
-	const withLog = await async_eval('console.log(1)\n42', { console: quietConsole() })
-	assertEqual(withLog.result, 42, 'console.log 后隐式 return 仍为 42')
+	const withLog = await async_eval('console.log(1)\n72', { console: quietConsole() })
+	assertEqual(withLog.result, 72, 'console.log 后隐式 return 仍为 72')
 	assertEqual(withLog.error, undefined, '带 console.log 的 eval 不得抛错')
 	assertEqual(withLog.outputEntries.length, 1, '捕获一条 console.log')
 	assertEqual(withLog.outputEntries[0]?.args?.[0], 1, 'console.log 参数正确')

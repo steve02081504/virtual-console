@@ -2,7 +2,7 @@
  * 从 `serializeArgSnapshot` 产出的带 `kind` 标签树生成 plain / ANSI 展示文本。
  */
 
-import { DEFAULT_SNAPSHOT_DEPTH } from '../core/snapshot.mjs'
+import { DEFAULT_SNAPSHOT_DEPTH } from '../core/snapshot/serialize.mjs'
 import { parseStackTraceLine, stackFrameToOsc8Href } from '../core/stack.mjs'
 
 import { ansiHyperlink, stripTerminalDecorations } from './ansi.mjs'
@@ -412,6 +412,11 @@ function formatSnapshotInner(snap, options) {
 				? `[Circular *${circularRefIndex}]`
 				: String(/** @type {{ value?: unknown }} */ node.value ?? '[Circular]')
 			return `${colors.cyan}${text}${colors.reset}`
+		}
+
+		if (node.kind === 'Proxy') {
+			const inner = formatNode(node.target, objectDepth)
+			return `${colors.cyan}Proxy(${colors.reset}${inner}${colors.cyan})${colors.reset}`
 		}
 
 		if (node.kind === 'Date')

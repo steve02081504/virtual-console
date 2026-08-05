@@ -8,7 +8,7 @@
 export {
 	newLogEntry,
 	LogEntry,
-} from '../core/entries.mjs'
+} from '../core/entries/index.mjs'
 
 /**
  * 调用栈解析与裁剪：提取帧信息、去除运行时内部帧。
@@ -17,6 +17,7 @@ export {
 	getStackInfo,
 	parseErrorStack,
 	trimLeadingRuntimeInternalFrames,
+	resolvePrimaryCallsiteFromSegments,
 } from '../core/stack.mjs'
 
 /**
@@ -24,10 +25,16 @@ export {
  */
 export {
 	serializeArgSnapshot,
-	expandSnapshotRef,
 	DEFAULT_SNAPSHOT_DEPTH,
+} from '../core/snapshot/serialize.mjs'
+/**
+ *
+ */
+export {
+	expandSnapshotRef,
 	createExpansionScope,
-} from '../core/snapshot.mjs'
+	getExpansionScope,
+} from '../core/snapshot/expansion.mjs'
 
 /**
  * ANSI / OSC 处理：剥装饰与标题序列、终端块转 HTML、字符串化与 HTML 转义。

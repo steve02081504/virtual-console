@@ -47,7 +47,7 @@ export class VirtualConsole extends Console {
 	readonly outputs: string
 	/** 所有捕获输出拼接成的 HTML 字符串 */
 	readonly outputsHtml: string
-	/** 结构化日志条目数组 */
+	/** 结构化日志条目数组（`block` 期间可暂时超出 `maxLogEntries`，`unblock` 后裁回） */
 	outputEntries: LogEntry[]
 	/** 最终合并后的配置项（日志监听请用 {@link addLogEntryListener} / {@link removeLogEntryListener}） */
 	options: Required<Omit<VirtualConsoleOptions, 'baseConsole'>> & {
@@ -61,6 +61,8 @@ export class VirtualConsole extends Console {
 	 * 以确保 `entry.stack` 指向真正的调用方而非包装层。
 	 */
 	stackFrameSkipCount: number
+	/** 是否处于 `block` 状态（嵌套深度大于 0） */
+	readonly blocked: boolean
 
 	/**
 	 * 与 Node `console` 实例相同的 `_stdout` / `_stderr` 表面（`Console` 基类内部会读此二字段；实现上委托给内部私有流）。
@@ -84,6 +86,18 @@ export class VirtualConsole extends Console {
 	removeClearListener(fn: () => void): void
 
 	/**
+	 * 进入 block：本地记录与监听照常，实际输出（含向 `baseConsole` 的转发）入队延后；可重入。
+	 * block 期间 `outputEntries` 可不裁剪到 `maxLogEntries`。
+	 */
+	block(): void
+
+	/**
+	 * 退出一层 block；深度归零时按序重放待输出内容（含 `clear` 标记）并恢复长度限制。
+	 * 深度已为 0 时再调用为未定义行为（实现上幂等）。
+	 */
+	unblock(): void
+
+	/**
 	 * 传入函数时，在新的异步上下文中执行该函数，`console` 在函数内指向此实例，
 	 * 返回函数结果的 Promise。
 	 * @param callback 要在隔离上下文中执行的函数
@@ -105,7 +119,8 @@ export class VirtualConsole extends Console {
 
 	/**
 	 * 清空 `outputEntries` 并重置 `freshLine` 状态。
-	 * 若 `realConsoleOutput` 为 `true`，也会调用底层控制台的 `clear()`。
+	 * 若 `realConsoleOutput` 为 `true`，也会调用底层控制台的 `clear()`
+	 * （`block` 期间将 clear 标记入队，`unblock` 时按序重放）。
 	 * 清空完成后同步调用 {@link addClearListener} 注册的回调。
 	 */
 	clear(): void

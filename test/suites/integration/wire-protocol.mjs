@@ -505,7 +505,7 @@ async function testLogWireServerCustomClientPayloadAsyncRejectIsAbsorbed() {
 async function testWireHelpers() {
 	console.log('\n=== [wire 协议与辅助] ===')
 	let shutdown = /** @type {object | null} */ null
-	await dispatchLogWireMessage({ type: 'my_shutdown', code: 42, reason: 'bye' }, {
+	await dispatchLogWireMessage({ type: 'my_shutdown', code: 72, reason: 'bye' }, {
 		extensionHandlers: {
 			/**
 			 * 捕获自定义 shutdown 载荷。
@@ -516,7 +516,7 @@ async function testWireHelpers() {
 		},
 	})
 	assert(shutdown != null, 'extensionHandlers 收到自定义 shutdown')
-	assertEqual(/** @type {{ code?: number }} */ shutdown.code, 42, '自定义载荷 code')
+	assertEqual(/** @type {{ code?: number }} */ shutdown.code, 72, '自定义载荷 code')
 	assertEqual(/** @type {{ reason?: string }} */ shutdown.reason, 'bye', '自定义载荷 reason')
 	let ext = false
 	await dispatchLogWireMessage({ type: 'my_app_ping', n: 1 }, {

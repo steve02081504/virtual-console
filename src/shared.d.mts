@@ -89,6 +89,8 @@ export interface LogEntry {
 	method: string
 	/** 原始参数数组（`stdout` / `stderr` 条目为单元素文本数组） */
 	readonly args: unknown[]
+	/** 参与格式化 / 透传展示的参数（`freshLine` 跳过 id） */
+	readonly displayArgs: unknown[]
 	/** `freshLine` 主 id（非 freshLine 条目可为空） */
 	readonly id?: string
 	/** 调用栈帧数组（两端均支持） */
@@ -166,6 +168,10 @@ export declare function createExpansionScope(entry: object): {
 	allocRef(target: object): string
 }
 
+export declare function getExpansionScope(entry: object): {
+	allocRef(target: object): string
+}
+
 export declare function expandSnapshotRef(
 	ref: string,
 	maxDepth?: number
@@ -174,6 +180,10 @@ export declare function expandSnapshotRef(
 export declare function getStackInfo(leadingLinesToSkip?: number): StackFrame[]
 export declare function parseErrorStack(error: unknown, skipNum?: number): StackFrame[]
 export declare function trimLeadingRuntimeInternalFrames(frames: StackFrame[]): StackFrame[]
+export declare function resolvePrimaryCallsiteFromSegments(
+	segments: LogSegment[] | undefined,
+	stack?: StackFrame[]
+): StackFrame | null
 
 export declare function newLogEntry(options: object): LogEntry
 

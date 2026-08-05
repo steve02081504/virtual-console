@@ -1,7 +1,7 @@
 /**
  * 与任意 WebSocket 复用的日志线路消息（纯函数，不创建连接）。
  */
-import { expandSnapshotRef } from '../core/snapshot.mjs'
+import { expandSnapshotRef } from '../core/snapshot/expansion.mjs'
 
 import { logWirePayloadTypes, WS_OPEN } from './protocol.mjs'
 
@@ -49,10 +49,10 @@ export function handleClientWireMessage(parsed, handlers = {}) {
  * 首次调用时注册一条 `addLogEntryListener`，向当前所有已连接客户端广播 `vc_log_append`。
  *
  * @param {{
- *   outputEntries: import('../core/entries.mjs').LogEntry[]
- *   addLogEntryListener: (fn: (entry: import('../core/entries.mjs').LogEntry) => void) => void
+ *   outputEntries: import('../core/entries/log-entry.mjs').LogEntry[]
+ *   addLogEntryListener: (fn: (entry: import('../core/entries/log-entry.mjs').LogEntry) => void) => void
  *   addClearListener: (fn: () => void) => void
- *   removeLogEntryListener?: (fn: (entry: import('../core/entries.mjs').LogEntry) => void) => void
+ *   removeLogEntryListener?: (fn: (entry: import('../core/entries/log-entry.mjs').LogEntry) => void) => void
  *   removeClearListener?: (fn: () => void) => void
  *   clear: () => void
  * }} virtualConsole - 带缓冲与监听器的宿主控制台（通常为 `VirtualConsole`）。
@@ -79,7 +79,7 @@ export function createLogWireWebSocketHandler(virtualConsole, wireOptions = {}) 
 	const clients = new Set()
 	/**
 	 * 将新日志条目广播为 `vc_log_append`。
-	 * @param {import('../core/entries.mjs').LogEntry} entry - 宿主新增的日志条目。
+	 * @param {import('../core/entries/log-entry.mjs').LogEntry} entry - 宿主新增的日志条目。
 	 * @returns {void}
 	 */
 	const onLogEntry = (entry) => {

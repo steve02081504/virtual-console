@@ -5,8 +5,12 @@ export {
 	consoleAsyncStorage,
 	VirtualConsole,
 	defaultConsole,
-	globalConsoleAdditionalProperties,
 	setGlobalConsoleResolver,
 	getGlobalConsoleResolver,
 	console,
 } from './node-console.mjs'
+
+/**
+ *
+ */
+export { globalConsoleAdditionalProperties } from '../shared/console-routing.mjs'

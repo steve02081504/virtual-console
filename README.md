@@ -40,9 +40,9 @@ The default entry (`.`) re-exports **`VirtualConsole`**, **`console`**, **`defau
 - `@steve02081504/virtual-console/wire/protocol`: Log wire `type` constants + `dispatchLogWireMessage`.
 - `@steve02081504/virtual-console/wire/server`: `handleClientWireMessage` + `createLogWireWebSocketHandler`.
 - `@steve02081504/virtual-console/wire/client`: `connectLogWire` / `attachLogWire`.
-- `@steve02081504/virtual-console/wire/serialize-log-entry`: `serializeLogEntryForWire` only (flat DTO for WebSocket JSON: `segments`, stack metadata; no raw `args`).
+- `@steve02081504/virtual-console/wire/wire-log-entry`: `WireLogEntry` / `createWireLogEntryFromJson` (wire JSON payload view).
 
-Import **`serializeLogEntryForWire`** from **`@steve02081504/virtual-console/wire/serialize-log-entry`** when you need a flat DTO payload. Keep wire-related imports on dedicated **`/wire/*`** entrypoints for clearer boundaries and tree-shaken builds.
+In-process entries use `entry.toJSON()` for wire transport; clients consume them via `WireLogEntry`. Keep wire-related imports on dedicated **`/wire/*`** entrypoints for clearer boundaries and tree-shaken builds.
 
 ## Quick start
 
@@ -198,9 +198,9 @@ vc.addLogEntryListener(onEntry);
 
 | Option              | Default          | Purpose                                                                                                                                                                                                                                                               |
 | ------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `realConsoleOutput` | `false`          | Also forward to the real / underlying console                                                                                                                                                                                                                         |
-| `recordOutput`      | `true`           | When `false`, nothing is stored (passthrough can still run)                                                                                                                                                                                                           |
-| `baseConsole`       | platform default | Console used for `realConsoleOutput` passthrough. When set to another `VirtualConsole`, ANSI settings are inherited from it. Node default: the `VirtualConsole` active in the current async context; browser default: the active virtual console or `defaultConsole`. |
+| `realConsoleOutput` | `false`          | Also forward to the real / underlying console. Layers with `recordOutput: false` still forward without allocating a `LogEntry` when the next hop can accept raw `(method, args)` or native output.                                                                                                                                                                                           |
+| `recordOutput`      | `true`           | When `false`, nothing is stored and log-entry listeners are not called (passthrough can still run).                                                                                                                                                                                                   |
+| `baseConsole`       | platform default | Console used for `realConsoleOutput` passthrough. When set to another `VirtualConsole`, ANSI settings are inherited from it, and forwarded entries are **the same `LogEntry` instance** when the child captured them (shared `timestamp` / `stack` / expansion refs). Node default: the `VirtualConsole` active in the current async context; browser default: the active virtual console or `defaultConsole`. |
 | `supportsAnsi`      | platform auto    | Affects `freshLine`, trace formatting, `toString()` / `toHtml()`. Node: auto-detected via `supports-ansi`; browser: `!!globalThis.chrome`. Inherited from `baseConsole` when `baseConsole` is a `VirtualConsole`.                                                     |
 | `maxLogEntries`     | `Infinity`       | Drop oldest entries when exceeded                                                                                                                                                                                                                                     |
 
@@ -211,7 +211,7 @@ vc.addLogEntryListener(onEntry);
   - `method` — originating console/stream method name (`'log'`, `'trace'`, `'dir'`, `'stdout'`, …). Useful when `level` alone is ambiguous (e.g. `dir` → level `log`).
   - `args` — original captured arguments in-process (`stdout` / `stderr` entries store a single-element text array)
   - `timestamp` — Unix timestamp in milliseconds when the entry was recorded
-  - `stack` — parsed call-stack frames, each with `functionName`, `filePath`, `line`, `column`, and `raw`
+  - `stack` — parsed call-stack frames, each with `functionName`, `filePath`, `line`, `column`, and `raw`. Parsed **lazily on first read** (capture stores an `Error` until then); `toString()` / `outputs` / `outputsHtml` do not force parsing except for `trace` entries, which include the stack in `toSegments()`.
   - `primaryCallsite` — read-only: a single “display” frame with a usable `filePath` when you need one pointer into user code. If the log arguments include a root-level `Error` snapshot, the first such frame from that error’s parsed stack wins; otherwise it falls back to the first frame in `stack` that has a path. `null` when no suitable frame exists.
   - `serializeArgs()` — JSON-serializable snapshots of the original arguments (depth-limited)
   - `toSegments()` — structured fragments for UI mapping (`LogSegment[]`)
@@ -227,9 +227,11 @@ vc.addLogEntryListener(onEntry);
 
 - **`options`** — The resolved configuration object for flags such as `recordOutput`, `realConsoleOutput`, `maxLogEntries`, etc.
 
-- **`baseConsole`** (Node) — The effective passthrough console instance resolved from the `baseConsole` option. Readable and writable directly on the instance after construction.
+- **`baseConsole`** (Node) — The effective passthrough console instance resolved from the `baseConsole` option. Readable and writable directly on the instance after construction. When the base is another `VirtualConsole`, parent and child share the same `LogEntry` objects.
 
-- **`stackFrameSkipCount`** — When you wrap `console` calls inside your own function, increment this before the call and restore it in `finally`. This skips the extra stack frame so `entry.stack` still points at the real caller. See [example below](#accurate-stacks-stackframeskipcount).
+- **`blocked`** — `true` while `block()` nesting depth is greater than zero.
+
+- **`stackFrameSkipCount`** — When you wrap `console` calls inside your own function, increment this before the call and restore it in `finally`. This skips the extra stack frame so `entry.stack` still points at the real caller. Only the **console instance that was called** applies its count; downstream passthrough layers do not add theirs. See [example below](#accurate-stacks-stackframeskipcount).
 
 ## Methods
 
@@ -239,11 +241,13 @@ vc.addLogEntryListener(onEntry);
 
 - **`hookAsyncContext()`** — No-arg form: activates this instance for the rest of the current context with no automatic teardown. On Node it calls `AsyncLocalStorage.enterWith`; in the browser it sets a module-level variable that affects all subsequent code globally. Use with care.
 
+- **`block()`** / **`unblock()`** — Reentrant output gate. While blocked, `outputEntries` and log-entry listeners still update normally when `recordOutput` is on (and may temporarily exceed `maxLogEntries`); nothing is forwarded to `baseConsole` / the real console. A non-recording layer that is blocked still captures briefly so deferred output keeps the original stack/timestamp. Each `block()` must be matched by an `unblock()`. When the nesting depth returns to zero, deferred outputs (including deferred `clear`) are replayed in order, then the local buffer is trimmed to `maxLogEntries`. Calling `unblock()` at depth 0 is undefined (implementation is a no-op flush). Stream writes deferred across a block are replayed via decoded `entry.text` (binary chunk fidelity is not preserved for the deferred path).
+
 - **`freshLine(id, ...args)`** — Print a progress line that overwrites the previous line when called again with the same `id`. Works on ANSI-capable Node TTYs; in the browser it behaves like a normal `log` call. See [example above](#progress-with-freshline).
 
-- **`clear()`** — Clears all captured entries and resets the `freshLine` state. Then invokes **`addClearListener`** callbacks synchronously (no synthetic log entry). When `realConsoleOutput` is enabled, also calls `clear()` on the underlying console.
+- **`clear()`** — Clears all captured entries and resets the `freshLine` state. Then invokes **`addClearListener`** callbacks synchronously (no synthetic log entry). When `realConsoleOutput` is enabled, also calls `clear()` on the underlying console—unless blocked, in which case a clear marker is queued and replayed (after earlier deferred entries) on the matching `unblock()`.
 
-- **`addClearListener(fn)`** / **`removeClearListener(fn)`** — Register/unregister callbacks invoked synchronously after **`clear()`** completes (buffer empty, optional underlying `clear()` already called). Use with **`createLogWireWebSocketHandler`** / **`attachLogWire`** for remote UI sync.
+- **`addClearListener(fn)`** / **`removeClearListener(fn)`** — Register/unregister callbacks invoked synchronously after **`clear()`** completes (buffer empty, optional underlying `clear()` already called or deferred). Use with **`createLogWireWebSocketHandler`** / **`attachLogWire`** for remote UI sync.
 
 - **`writeAs(level, ...args)`** — Record an entry at any log level, bypassing `console.*` method routing entirely. Useful for custom levels or injecting synthetic entries. With `realConsoleOutput: true` on Node, warn/error/trace-style levels go to stderr and everything else to stdout.
 
@@ -276,7 +280,7 @@ Stable `type` strings live on **`logWirePayloadTypes`** (`vc_*`). Custom frames 
 | Client → server (expand request) | `vc_expand_request`            |
 | Client → server (request clear)  | `vc_clear_request`             |
 
-Wire protocol modules live on dedicated imports: **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, **`/wire/client`**, and **`/wire/serialize-log-entry`**, which also keep tree-shaken builds focused.
+Wire protocol modules live on dedicated imports: **`@steve02081504/virtual-console/wire/protocol`**, **`/wire/server`**, **`/wire/client`**, and **`/wire/wire-log-entry`**, which also keep tree-shaken builds focused.
 
 Use **`JSON.parse`** on each inbound text frame, then **`await dispatchLogWireMessage`** (callbacks may be `async`). **`onSnapshot`** receives **`entries`**, **`onAppend`** receives **`entry`**, and **`onClear`** is a zero-arg callback. Use **`extensionHandlers`** for custom `type` values (with **`onUnknown`** as fallback). If you use **`attachLogWire`**, handle expand flows through **`requestExpand(ref, maxDepth?)`** (Promise); parsing frames manually is optional.
 
@@ -332,7 +336,7 @@ The main entry (`@steve02081504/virtual-console`) always exposes Node-flavoured 
 
 ### Accurate stacks: `stackFrameSkipCount`
 
-When your own function wraps a `console` call, the captured stack points at your wrapper instead of the real caller. Increment `stackFrameSkipCount` before delegating and restore it in `finally` to skip the extra frame:
+When your own function wraps a `console` call, the captured stack points at your wrapper instead of the real caller. Increment `stackFrameSkipCount` on the **console being called** before delegating and restore it in `finally` to skip the extra frame:
 
 ```javascript
 function myLog(...args) {
@@ -387,7 +391,7 @@ In the browser, use custom reflection when you need more than one logical “act
 | No-arg `hookAsyncContext()`                 | `enterWith` — scopes to the current async context              | Sets a global module variable — affects all subsequent code                                               |
 | `process.stdout` / `process.stderr` capture | Yes; writes are captured as `stdout`/`stderr` level entries    | Browser logging uses standard console method capture (`log`/`info`/`warn`/`error`/`debug`)                |
 | `freshLine` overwrite                       | Yes, on ANSI-capable TTYs                                      | Browser treats `freshLine` as regular line-by-line logging                                                |
-| `writeAs` with `realConsoleOutput: true`    | Routes warn/error/trace-style levels to stderr, rest to stdout | Only forwards when `baseConsole` is also a `VirtualConsole`                                               |
+| `writeAs` with `realConsoleOutput: true`    | Calls the matching native console method when present; otherwise routes warn/error/trace-style levels to stderr and the rest to stdout | Forwards to the native `baseConsole` method (or `log` for `freshLine`) |
 | `supportsAnsi` default                      | Auto-detected via `supports-ansi` package                      | `!!globalThis.chrome`                                                                                     |
 
 ## Development

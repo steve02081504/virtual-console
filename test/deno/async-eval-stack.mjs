@@ -6,29 +6,30 @@
  * 会落到其 node_modules 内嵌的旧版包，无法测到工作区源码。
  */
 import { VirtualConsole } from '@steve02081504/virtual-console'
+
 import { async_eval } from '../../node_modules/@steve02081504/async-eval/main.mjs'
 
 /** @typedef {{ name: string, ok: boolean, detail?: string }} CaseResult */
 
-/** @returns {VirtualConsole} */
+/** @returns {VirtualConsole} 仅记录、不转发输出的 VirtualConsole。 */
 function quietConsole() {
 	return new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 }
 
-/** @returns {Promise<CaseResult[]>} */
+/** @returns {Promise<CaseResult[]>} 全部 Deno 子进程冒烟用例的执行结果。 */
 async function runCases() {
 	/** @type {CaseResult[]} */
 	const results = []
 
-	const pure = await async_eval('42', { console: quietConsole() })
+	const pure = await async_eval('72', { console: quietConsole() })
 	results.push({
 		name: 'pure_expression',
-		ok: pure.result === 42 && !pure.error,
+		ok: pure.result === 72 && !pure.error,
 		detail: pure.error ? String(pure.error?.message ?? pure.error) : undefined,
 	})
 
-	const withLog = await async_eval('console.log(1)\n42', { console: quietConsole() })
-	const logOk = withLog.result === 42
+	const withLog = await async_eval('console.log(1)\n72', { console: quietConsole() })
+	const logOk = withLog.result === 72
 		&& !withLog.error
 		&& withLog.outputEntries.length === 1
 		&& withLog.outputEntries[0]?.args?.[0] === 1
