@@ -37,10 +37,11 @@ function bench(label, fn, n = 20000, warmup = 2000) {
 function createNullConsole() {
 	const sink = new Writable({
 		/**
-		 *
-		 * @param _chunk
-		 * @param _encoding
-		 * @param callback
+		 * 忽略写入内容并立即完成。
+		 * @param {Buffer | string} _chunk - 被丢弃的数据块。
+		 * @param {string} _encoding - 编码名。
+		 * @param {(error?: Error | null) => void} callback - 写入完成回调。
+		 * @returns {void}
 		 */
 		write(_chunk, _encoding, callback) { callback() },
 	})
@@ -71,18 +72,20 @@ console.log('\n=== stream write ===')
 {
 	const sink = new Writable({
 		/**
-		 *
-		 * @param _chunk
-		 * @param _encoding
-		 * @param callback
+		 * 忽略写入内容并立即完成。
+		 * @param {Buffer | string} _chunk - 被丢弃的数据块。
+		 * @param {string} _encoding - 编码名。
+		 * @param {(error?: Error | null) => void} callback - 写入完成回调。
+		 * @returns {void}
 		 */
 		write(_chunk, _encoding, callback) { callback() },
 	})
 	/**
-	 *
-	 * @param chunk
-	 * @param encoding
-	 * @param cb
+	 * 委托给 sink.write。
+	 * @param {Buffer | string} chunk - 待写入数据块。
+	 * @param {string} encoding - 编码名。
+	 * @param {(error?: Error | null) => void} cb - 写入完成回调。
+	 * @returns {boolean} sink.write 的返回值。
 	 */
 	const nativeWrite = (chunk, encoding, cb) => sink.write(chunk, encoding, cb)
 	bench('native write', i => {
