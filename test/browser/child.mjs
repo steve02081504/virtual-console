@@ -134,9 +134,12 @@ async function runCases() {
 		const vc = new VirtualConsole({ recordOutput: false, realConsoleOutput: true, baseConsole: fakeConsole })
 		vc.writeAs('stdout', 'out-text')
 		vc.writeAs('stderr', 'err-text')
-		check(calls.length === 2, `expected 2 native calls, got ${calls.length}`)
-		check(calls[0][0] === 'log' && calls[0][1] === 'out-text', 'stdout 走 console.log')
-		check(calls[1][0] === 'error' && calls[1][1] === 'err-text', 'stderr 走 console.error')
+		check(calls.length === 0, `stdout/stderr 不向原生 console 转发，实际 ${calls.length} 次`)
+		vc.writeAs('log', 'still-log')
+		vc.writeAs('freshLine', 'line-id', 'step')
+		check(calls.length === 2, 'log / freshLine 仍转发')
+		check(calls[0][0] === 'log' && calls[0][1] === 'still-log', 'log 走 console.log')
+		check(calls[1][0] === 'log' && calls[1][1] === 'step', 'freshLine 走 console.log')
 	}))
 
 	results.push(await runCase('maxLogEntries', async () => {

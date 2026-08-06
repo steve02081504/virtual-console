@@ -4,6 +4,10 @@
 
 import { dict } from '../../util/dict.mjs'
 
+/**
+ * 伪方法 → baseConsole 方法名；`null` 表示不向原生 console 转发。
+ * 未列出的 method 原样使用。
+ */
 const baseMethodTable = dict({
 	stdout: null,
 	stderr: null,
