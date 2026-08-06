@@ -6,8 +6,8 @@ import {
 	getStackInfo,
 } from '@steve02081504/virtual-console'
 
-import { parseStackTraceLine, pathToFileURL, stackFrameToOsc8Href } from '../../../src/core/stack.mjs'
-import { assert, assertEqual, runTestGroup } from '../../harness.mjs'
+import { parseStackTraceLine, pathToFileURL, stackFrameToOsc8Href } from '../src/core/stack.mjs'
+import { assert, assertEqual, runTestGroup } from './harness.mjs'
 
 /**
  * Node `Console` 子类在删除实例上的 `_stdout` 后，读属性仍应命中子类 getter 并返回 `VirtualStream`。
@@ -186,7 +186,7 @@ async function testLogEntryStack() {
 	assert(typeof logEntry.stack[0].filePath === 'string', 'stack 帧包含 filePath')
 	assert(typeof logEntry.stack[0].line === 'number', 'stack 帧包含 line 号')
 	const logFp = String(logEntry.stack[0].filePath).replace(/\\/g, '/')
-	assert(logFp.includes('suites/integration/'), `console.log 首帧应为 integration 子目录文件，实际：${logEntry.stack[0].filePath}`)
+	assert(logFp.includes('test/runtime.mjs'), `console.log 首帧应为 runtime 测试文件，实际：${logEntry.stack[0].filePath}`)
 
 	const vc2 = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
@@ -213,7 +213,7 @@ async function testLogEntryStack() {
 		`stdout 首帧不应为运行时内部路径，实际 filePath=${fp}`)
 
 	const nfp = String(fp).replace(/\\/g, '/')
-	assert(nfp.includes('suites/integration/'), `stdout 首帧应落回 integration 子目录文件，实际 filePath=${fp}`)
+	assert(nfp.includes('test/runtime.mjs'), `stdout 首帧应落回 runtime 测试文件，实际 filePath=${fp}`)
 	assert(
 		top.functionName.includes('callerOfStdoutWrite'),
 		`stdout 首帧函数名应为写入调用者，实际 functionName=${top.functionName}`)
@@ -222,7 +222,7 @@ async function testLogEntryStack() {
 /**
  *
  */
-export async function runRuntimeAndContextTests() {
+export async function runRuntimeTests() {
 	await runTestGroup('runtime 与上下文隔离', [
 		testNodeVirtualConsoleStdoutUsesGetterVirtualStream,
 		testContextIsolation,

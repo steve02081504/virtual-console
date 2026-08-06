@@ -23,3 +23,10 @@ Use `isVirtualConsole(value)` (`VIRTUAL_CONSOLE_BRAND`) — see `src/runtime/sha
 Shape and seam rules live next to the code in `src/runtime/shared/virtual-console.mjs`:
 
 `#dispatch` → (raw hop | stackless `#emit` | `#capture` → `#ingest`(`#record` + `#output`) → `#emit`); streams use `#ingestChunk`.
+
+## Tests
+
+- 入口：`npm test` → `test/runner.mjs`
+- 主题套件：`test/runtime.mjs`、`test/console/`（recording / nesting / block / performance）、`test/snapshot.mjs`、`test/wire.mjs`
+- 跨运行时子进程：`test/browser/child.mjs`、`test/deno/child.mjs`（由对应 `suite.mjs` spawn，stdout 末行 JSON `{ results }`）
+- 共享辅助：`test/helpers.mjs`（`createNullConsole`、`spawnChildJsonResults`、`runCase` / `emitChildResults`）

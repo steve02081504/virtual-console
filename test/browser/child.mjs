@@ -1,9 +1,9 @@
 /**
- * 浏览器实现冒烟脚本：在 Node 子进程内 shim `window` 后加载 `/browser` 入口。
- * 由 `test/suites/integration/browser-console.mjs` 启动并解析 stdout JSON。
- *
+ * 浏览器实现冒烟：在 Node 子进程内 shim `window` 后加载 `/browser` 入口。
  * 必须独立进程：browser 入口会替换 `globalThis.console`，不能与 Node 侧测试同进程混跑。
  */
+import { emitChildResults, runCase, check } from '../helpers.mjs'
+
 const originalConsole = globalThis.console
 globalThis.window = { console: originalConsole }
 
@@ -13,42 +13,6 @@ const {
 	getGlobalConsoleResolver,
 } = await import('@steve02081504/virtual-console/browser')
 
-/** @typedef {{ name: string, ok: boolean, detail?: string }} CaseResult */
-
-/**
- * 执行单个冒烟用例并捕获失败信息。
- * @param {string} name - 用例名称。
- * @param {() => void | Promise<void>} fn - 用例主体。
- * @returns {Promise<CaseResult>} 含 `ok` 与可选 `detail` 的结果对象。
- */
-async function runCase(name, fn) {
-	try {
-		await fn()
-		return { name, ok: true }
-	} catch (err) {
-		return {
-			name,
-			ok: false,
-			detail: err instanceof Error ? err.message : String(err),
-		}
-	}
-}
-
-/**
- * 条件为假时抛出 `Error`，供用例内断言。
- * @param {boolean} condition - 期望为真的条件。
- * @param {string} message - 失败时的错误信息。
- * @returns {void}
- */
-function check(condition, message) {
-	if (!condition) throw new Error(message)
-}
-
-/**
- * 创建仅记录、不转发到真实 `console` 的 VirtualConsole。
- * @param {ConstructorParameters<typeof VirtualConsole>[0]} [options] - 额外构造选项。
- * @returns {VirtualConsole} 静默虚拟控制台实例。
- */
 function quietVc(options = {}) {
 	return new VirtualConsole({
 		recordOutput: true,
@@ -58,9 +22,7 @@ function quietVc(options = {}) {
 	})
 }
 
-/** @returns {Promise<CaseResult[]>} 全部浏览器冒烟用例的执行结果。 */
 async function runCases() {
-	/** @type {CaseResult[]} */
 	const results = []
 
 	results.push(await runCase('capture_log_warn_error', async () => {
@@ -128,7 +90,6 @@ async function runCases() {
 		})
 		check(vc.outputEntries.length === 1, `hook 内仅 1 条，实际 ${vc.outputEntries.length}`)
 		check(vc.outputEntries[0].args[0] === 'inside', 'inside 被捕获')
-		// hook 结束后切到 after：宏任务应落到当前活动控制台，而非已结束的 vc
 		setActiveConsole(after)
 		try {
 			await new Promise(r => setTimeout(r, 40))
@@ -148,7 +109,6 @@ async function runCases() {
 			check(vc.outputEntries.length === 1, '无参 hook 后 console.log 写入该实例')
 			check(vc.outputEntries[0].args[0] === 'global-hook', '内容正确')
 		} finally {
-			// 浏览器无参 hook 是模块级全局，测完必须清掉以免污染后续用例
 			setActiveConsole(null)
 			check(getGlobalConsoleResolver().getActiveConsole() === defaultConsole, '清理后回到 defaultConsole')
 		}
@@ -177,6 +137,4 @@ async function runCases() {
 	return results
 }
 
-const results = await runCases()
-originalConsole.log(JSON.stringify({ results }))
-process.exit(results.every(r => r.ok) ? 0 : 1)
+emitChildResults(await runCases())

@@ -7,11 +7,6 @@ import { parseErrorStack, resolvePrimaryCallsiteFromSegments } from '../stack.mj
 import { methodNameToLevel } from './level.mjs'
 
 /**
- *
- */
-export { methodNameToLevel } from './level.mjs'
-
-/**
  * 单条日志条目：`segments` 由 {@link LogEntry#toSegments} 按需构造；`stdout`/`stderr` 带 `text`。
  * `stack` 可惰性解析：构造时传入 `stackSource`（`Error`）+ `skipFrames`，首次读取 `stack` 时才解析。
  */

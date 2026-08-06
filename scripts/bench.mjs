@@ -5,8 +5,6 @@
  * 深度扫描若呈指数级增长，说明 snapshot-display 又退化成了对子节点双重渲染。
  */
 
-import { Writable } from 'node:stream'
-
 import {
 	VirtualConsole,
 	newLogEntry,
@@ -14,6 +12,7 @@ import {
 } from '@steve02081504/virtual-console'
 
 import { formatSnapshot } from '../src/format/snapshot-display.mjs'
+import { createNullConsole } from '../test/helpers.mjs'
 
 /**
  * @param {string} label - 场景名。
@@ -29,23 +28,6 @@ function bench(label, fn, n = 20000, warmup = 2000) {
 	const us = (performance.now() - start) / n * 1000
 	console.log(`  ${label.padEnd(42)} ${us.toFixed(3)} µs/op`)
 	return us
-}
-
-/**
- * @returns {Console} 丢弃写入的原生 Console。
- */
-function createNullConsole() {
-	const sink = new Writable({
-		/**
-		 * 忽略写入内容并立即完成。
-		 * @param {Buffer | string} _chunk - 被丢弃的数据块。
-		 * @param {string} _encoding - 编码名。
-		 * @param {(error?: Error | null) => void} callback - 写入完成回调。
-		 * @returns {void}
-		 */
-		write(_chunk, _encoding, callback) { callback() },
-	})
-	return new console.Console(sink, sink)
 }
 
 console.log('\n=== dispatch ===')

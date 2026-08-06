@@ -7,10 +7,6 @@ import { TraceLogEntry } from './trace-entry.mjs'
 /**
  *
  */
-export { methodNameToLevel } from './level.mjs'
-/**
- *
- */
 export { LogEntry } from './log-entry.mjs'
 /**
  *

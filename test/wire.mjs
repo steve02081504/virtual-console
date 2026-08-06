@@ -12,7 +12,7 @@ import {
 } from '@steve02081504/virtual-console/wire/protocol'
 import { createLogWireWebSocketHandler } from '@steve02081504/virtual-console/wire/server'
 
-import { assert, assertEqual, assertIncludes, runTestGroup } from '../../harness.mjs'
+import { assert, assertEqual, assertIncludes, runTestGroup } from './harness.mjs'
 
 /**
  * 生成一个最小可用的 WebSocket 测试桩。
@@ -812,7 +812,7 @@ async function testAttachLogWireNonOpenSendBehavior() {
 /**
  * 运行“wire 协议（server + client）”分组测试。
  */
-export async function runWireProtocolTests() {
+export async function runWireTests() {
 	await runTestGroup('wire 协议（server + client）', [
 		testCreateLogWireWebSocketHandlerWithProxy,
 		testLogWireHandlerClientControl,

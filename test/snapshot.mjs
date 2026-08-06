@@ -13,11 +13,11 @@ import {
 	serializeArgSnapshot,
 } from '@steve02081504/virtual-console'
 
-import { pathToFileURL } from '../../../src/core/stack.mjs'
-import { parseCssDecls } from '../../../src/format/css-to-ansi.mjs'
-import { formatSnapshot } from '../../../src/format/snapshot-display.mjs'
-import { applyExpandedSnapshotsInSegments } from '../../../src/wire/expand-wire-segments.mjs'
-import { assert, assertEqual, assertIncludes, runTestGroup } from '../../harness.mjs'
+import { pathToFileURL } from '../src/core/stack.mjs'
+import { parseCssDecls } from '../src/format/css-to-ansi.mjs'
+import { formatSnapshot } from '../src/format/snapshot-display.mjs'
+import { applyExpandedSnapshotsInSegments } from '../src/wire/expand-wire-segments.mjs'
+import { assert, assertEqual, assertIncludes, runTestGroup } from './harness.mjs'
 
 /**
  * printf 风格参数转 plain 文本。
@@ -413,7 +413,7 @@ async function testExpansionScopeReuseAcrossToSegments() {
 	}
 	/**
 	 * 从 `toSegments()` 结果中取第一个 truncated ref。
-	 * @param {import('../../../src/shared.d.mts').LogSegment[]} segments - 结构化片段数组。
+	 * @param {import('../src/shared.d.mts').LogSegment[]} segments - 结构化片段数组。
 	 * @returns {string} 首个 ref，无则为空串。
 	 */
 	function firstRef(segments) {
@@ -433,6 +433,43 @@ async function testExpansionScopeReuseAcrossToSegments() {
 	assertEqual(refFirst, refSecond, '再次 toSegments 复用同一 truncated.ref')
 	const expanded = expandSnapshotRef(refFirst)
 	assert(expanded.ok === true, '复用后的 ref 仍可 expandSnapshotRef')
+}
+
+/**
+ * 覆盖常见占位符、ANSI、CSS 与注入场景的端到端 VC 渲染行为。
+ */
+async function testRendering() {
+	console.log('\n=== [渲染功能测试] ===')
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	await vc.hookAsyncContext(() => {
+		console.log('--- [1. Standard Placeholders] ---')
+		console.log('String: %s', 'Hello World')
+		console.log('Integer: %d, Float: %f', 123, 45.678)
+		console.log('JSON Object: %o', { id: 1, status: 'ok' })
+		console.log('\n--- [2. ANSI Colors] ---')
+		console.log('\x1b[31mRed Text\x1b[0m')
+		console.log('\x1b[32mGreen Text\x1b[0m and \x1b[34mBlue Text\x1b[0m')
+		console.log('\n--- [3. CSS Styling (%c)] ---')
+		console.log('%cThis text is Blue and Large', 'color: blue; font-size: 20px')
+		console.log('Normal, %cRed Background%c, Normal again', 'background: red; color: white', '')
+		console.log('\n--- [4. Injection Test] ---')
+		const injectionPayload = '"><script>alert("pwned")</script><span style="'
+		console.log('%cInjection Test', injectionPayload)
+		console.log('Attempting to inject a script tag: %s', '<script>alert("oops")</script>')
+		console.log('\n--- [5. Special Cases] ---')
+		console.log('%s', Object.create(null))
+		const a = {}; a.a = a
+		console.log(a)
+		console.log('%f', Symbol('lol'))
+		console.log('%d', Symbol('lol'))
+		console.log('%j', Symbol('lol'))
+		console.log('%o', Symbol('lol'))
+	})
+	assertIncludes(vc.outputs, 'String: Hello World', 'outputs 包含格式化字符串')
+	assertIncludes(vc.outputs, 'Integer: 123, Float: 45.678', 'outputs 包含数字格式化')
+	assertIncludes(vc.outputsHtml, '&lt;script&gt;', 'HTML 输出对 script 标签进行了转义')
+	assertIncludes(vc.outputsHtml, 'color: blue; font-size: 20px', '支持 %c CSS 样式')
+	assertIncludes(vc.outputs, 'NaN', 'Symbol 用于 %f/%d 格式化时返回 NaN')
 }
 
 /**
@@ -458,8 +495,9 @@ function testSnapshotFormatComplexityCeiling() {
 /**
  * 运行“快照与渲染一致性”分组测试。
  */
-export async function runSnapshotAndRenderingTests() {
+export async function runSnapshotTests() {
 	await runTestGroup('快照与渲染一致性', [
+		testRendering,
 		testRenderPrintfPlain,
 		testPrintfDispatchParity,
 		testPrintfCssAnsiMapping,

@@ -1,31 +1,19 @@
 import { spawnSync } from 'node:child_process'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 import { VirtualConsole } from '@steve02081504/virtual-console'
 
-import { assert, assertEqual, runTestGroup } from '../../harness.mjs'
+import { assert, assertEqual, runTestGroup } from '../harness.mjs'
+import { packageRoot, spawnChildJsonResults } from '../helpers.mjs'
 
-const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..')
-
-/**
- * @returns {string | null} `deno` 可执行路径；不可用时为 null。
- */
 function resolveDenoExecutable() {
-	const probe = spawnSync('deno', ['--version'], { encoding: 'utf8' })
-	return probe.status === 0 ? 'deno' : null
+	return spawnSync('deno', ['--version'], { encoding: 'utf8' }).status === 0 ? 'deno' : null
 }
 
-/**
- * Node 侧：async-eval + 本地 VirtualConsole，覆盖 fount 常见 eval 路径。
- * @returns {Promise<void>}
- */
 async function testAsyncEvalConsoleLogOnNode() {
 	console.log('\n=== [async-eval + VirtualConsole（Node）] ===')
 
 	const { async_eval } = await import('@steve02081504/async-eval')
-
-	/** @returns {VirtualConsole} 仅记录、不转发输出的 VirtualConsole。 */
 	const quietConsole = () => new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
 	const pure = await async_eval('72', { console: quietConsole() })
@@ -40,10 +28,6 @@ async function testAsyncEvalConsoleLogOnNode() {
 	assert(Array.isArray(withLog.outputEntries[0]?.stack), 'log 条目含 stack 数组')
 }
 
-/**
- * Deno 子进程：async-eval + 本地 VirtualConsole，复现 AsyncFunction 栈格式（Windows/Deno 高发）。
- * @returns {Promise<void>}
- */
 async function testAsyncEvalConsoleLogOnDeno() {
 	console.log('\n=== [async-eval + VirtualConsole（Deno 子进程）] ===')
 
@@ -53,46 +37,24 @@ async function testAsyncEvalConsoleLogOnDeno() {
 		return
 	}
 
-	const script = join(packageRoot, 'test/deno/async-eval-stack.mjs')
+	const script = join(packageRoot, 'test/deno/child.mjs')
 	const importMap = join(packageRoot, 'test/deno/import-map.json')
-	const run = spawnSync(deno, [
-		'run',
-		'--allow-read',
-		'--allow-env',
-		'--allow-sys',
-		`--import-map=${importMap}`,
-		script,
-	], {
-		encoding: 'utf8',
-		cwd: packageRoot,
+	const { status, results } = spawnChildJsonResults(script, {
+		executable: deno,
+		args: ['run', '--allow-read', '--allow-env', '--allow-sys', `--import-map=${importMap}`],
 	})
 
-	if (run.status !== 0) {
-		assert(false, `Deno 子进程退出码为 0（实际 ${run.status}）\n${run.stderr || run.stdout}`)
-		return
-	}
+	if (status !== 0)
+		return assert(false, `Deno 子进程退出码为 0（实际 ${status}）`)
 
-	const lastLine = run.stdout.trim().split('\n').filter(Boolean).at(-1) ?? ''
-	/** @type {{ results?: Array<{ name: string, ok: boolean, detail?: string }> }} */
-	let payload
-	try {
-		payload = JSON.parse(lastLine)
-	} catch {
-		assert(false, `Deno 子进程 stdout 末行应为 JSON，实际：${lastLine}`)
-		return
-	}
-
-	const byName = Object.fromEntries((payload.results ?? []).map(r => [r.name, r]))
+	const byName = Object.fromEntries(results.map(r => [r.name, r]))
 	for (const name of ['pure_expression', 'console_log_then_return']) {
 		const item = byName[name]
 		assert(!!item?.ok, `${name} 在 Deno 下通过${item?.detail ? `（${item.detail}）` : ''}`)
 	}
 }
 
-/**
- * @returns {Promise<void>}
- */
-export async function runDenoAsyncEvalTests() {
+export async function runDenoTests() {
 	await runTestGroup('async-eval × Deno 栈容错', [
 		testAsyncEvalConsoleLogOnNode,
 		testAsyncEvalConsoleLogOnDeno,
