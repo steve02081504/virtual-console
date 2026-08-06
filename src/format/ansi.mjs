@@ -11,6 +11,11 @@ const OSC8_REGEX = /\u001B]8;;([^\u0007\u001B]*)(?:\u0007|\u001B\\)([\S\s]*?)\u0
 /** OSC 8（C1 SS3 引导） */
 const OSC8_C1_REGEX = /\u009D8;;([^\u0007\u001B]*)(?:\u0007|\u001B\\)([\S\s]*?)\u009D8;;(?:\u0007|\u001B\\)/g
 
+/** 无 ESC / C1 OSC 前缀时跳过标题剥离 */
+const OSC_TITLE_PROBE = /[\u001B\u009D]/
+/** 无控制字符 / 零宽 / C1 OSC 时跳过整段装饰剥离 */
+const DECORATION_PROBE = /[\u0000-\u0008\u000B-\u001F\u007F\u009D\u200B-\u200D\uFEFF]/
+
 /** 终端输出：OSC 8 超链接包络（7-bit ESC） */
 const OSC8_LINK_START = '\x1b]8;;'
 const OSC8_LINK_SEP = '\x07'
@@ -39,7 +44,9 @@ export function escapeHtml(str) {
  * @returns {string} 去掉 `\x1b]0;` / `\x1b]2;` 等标题序列后的字符串。
  */
 export function stripOscTitleSequences(text) {
-	return String(text || '')
+	const s = String(text || '')
+	if (!OSC_TITLE_PROBE.test(s)) return s
+	return s
 		.replace(/\u001B][02];[\S\s]*?(?:\u0007|\u001B\\)/g, '')
 		.replace(/\u009D[02];[\S\s]*?(?:\u0007|\u001B\\)/g, '')
 }
@@ -50,7 +57,9 @@ export function stripOscTitleSequences(text) {
  * @returns {string} OSC8 仅保留可见标签文本；CSI 与其它控制符移除。
  */
 export function stripTerminalDecorations(text) {
-	return stripOscTitleSequences(text)
+	const s = String(text || '')
+	if (!DECORATION_PROBE.test(s)) return s
+	return stripOscTitleSequences(s)
 		.replace(OSC8_REGEX, (m, h, label) => String(label || ''))
 		.replace(OSC8_C1_REGEX, (m, h, label) => String(label || ''))
 		.replace(/\u001B][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, '')
