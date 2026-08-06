@@ -1,3 +1,4 @@
+import { dict } from '../../util/dict.mjs'
 import { DirLogEntry } from './dir-entry.mjs'
 import { FreshLineLogEntry } from './fresh-line-entry.mjs'
 import { LogEntry } from './log-entry.mjs'
@@ -25,13 +26,13 @@ export { TraceLogEntry } from './trace-entry.mjs'
  */
 export { StreamLogEntry } from './stream-entry.mjs'
 
-const methodToConstructorMap = {
+const methodToConstructorMap = dict({
 	stdout: StreamLogEntry,
 	stderr: StreamLogEntry,
 	dir: DirLogEntry,
 	trace: TraceLogEntry,
 	freshLine: FreshLineLogEntry,
-}
+})
 
 /**
  * @param {object} options - 见 {@link LogEntry} 构造函数。

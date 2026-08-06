@@ -19,6 +19,10 @@ Use `isVirtualConsole(value)` (`VIRTUAL_CONSOLE_BRAND`) — see `src/runtime/sha
 - Capture/nesting and expansion-ref invariants: [docs/capture-and-wire.md](docs/capture-and-wire.md).
 - Pipeline shape: top of `src/runtime/shared/virtual-console.mjs`.
 
+## String-keyed lookup maps
+
+User-controlled keys (`writeAs(method)`, wire `method`, …) must not hit `Object.prototype`. Use `dict()` from `src/util/dict.mjs` (`Object.assign(Object.create(null), …)`); do not use `__proto__: null`.
+
 ## Tests
 
 - Entry: `npm test` → `test/runner.mjs`

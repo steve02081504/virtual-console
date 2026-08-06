@@ -2,11 +2,13 @@
  * 浏览器侧原生控制台输出。
  */
 
-const baseMethodTable = {
+import { dict } from '../../util/dict.mjs'
+
+const baseMethodTable = dict({
 	stdout: null,
 	stderr: null,
 	freshLine: 'log',
-}
+})
 
 /**
  * 将日志条目转发到浏览器 console。

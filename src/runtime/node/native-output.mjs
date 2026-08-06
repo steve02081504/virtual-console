@@ -2,13 +2,15 @@ import process from 'node:process'
 
 import ansiEscapes from 'ansi-escapes'
 
+import { dict } from '../../util/dict.mjs'
+
 /**
  * Node 侧原生控制台 / 流输出。
  */
-export const streamTable = {
+export const streamTable = dict({
 	stdout: process.stdout,
 	stderr: process.stderr,
-}
+})
 const defaultStream = streamTable.stdout
 
 /**

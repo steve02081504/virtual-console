@@ -1,13 +1,15 @@
+import { dict } from '../../util/dict.mjs'
+
 /**
  * console 方法名 → 语义级别（未列出的方法名原样返回）。
  */
-const METHOD_NAME_TO_LEVEL = {
+const METHOD_NAME_TO_LEVEL = dict({
 	dir: 'log',
 	freshLine: 'log',
 	trace: 'debug',
 	stdout: 'log',
 	stderr: 'error',
-}
+})
 
 /**
  * 将 console 方法名转换为语义级别。

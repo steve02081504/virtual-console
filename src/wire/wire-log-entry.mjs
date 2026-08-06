@@ -1,6 +1,7 @@
 import supportsAnsiDefault from 'supports-ansi'
 
 import { methodNameToLevel } from '../core/entries/level.mjs'
+import { dict } from '../util/dict.mjs'
 import { resolvePrimaryCallsiteFromSegments } from '../core/stack.mjs'
 import { renderAnsi, renderHtml, renderPlain } from '../format/render.mjs'
 
@@ -214,13 +215,13 @@ export class TraceWireLogEntry extends WireLogEntry { }
 /** `stdout` / `stderr` 的 wire 条目。 */
 export class StreamWireLogEntry extends WireLogEntry { }
 
-const methodToConstructorMap = {
+const methodToConstructorMap = dict({
 	dir: DirWireLogEntry,
 	trace: TraceWireLogEntry,
 	stdout: StreamWireLogEntry,
 	stderr: StreamWireLogEntry,
 	freshLine: FreshLineWireLogEntry,
-}
+})
 
 /**
  * @param {unknown} method - 线路条目 method。
