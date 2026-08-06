@@ -7,21 +7,23 @@ import { assert, assertEqual, runTestGroup } from '../harness.mjs'
 import { packageRoot, spawnChildJsonResults } from '../helpers.mjs'
 
 /**
- *
+ * 检测 deno 是否在 PATH 中可用。
+ * @returns {string | null} 可用时为 `'deno'`，否则 `null`。
  */
 function resolveDenoExecutable() {
 	return spawnSync('deno', ['--version'], { encoding: 'utf8' }).status === 0 ? 'deno' : null
 }
 
 /**
- *
+ * Node 侧 async-eval + VirtualConsole 集成。
+ * @returns {Promise<void>}
  */
 async function testAsyncEvalConsoleLogOnNode() {
 	console.log('\n=== [async-eval + VirtualConsole（Node）] ===')
 
 	const { async_eval } = await import('@steve02081504/async-eval')
 	/**
-	 *
+	 * @returns {VirtualConsole} 静默 VirtualConsole。
 	 */
 	const quietConsole = () => new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
@@ -38,7 +40,8 @@ async function testAsyncEvalConsoleLogOnNode() {
 }
 
 /**
- *
+ * Deno 子进程 async-eval + VirtualConsole 集成。
+ * @returns {Promise<void>}
  */
 async function testAsyncEvalConsoleLogOnDeno() {
 	console.log('\n=== [async-eval + VirtualConsole（Deno 子进程）] ===')
@@ -67,7 +70,7 @@ async function testAsyncEvalConsoleLogOnDeno() {
 }
 
 /**
- *
+ * @returns {Promise<void>}
  */
 export async function runDenoTests() {
 	await runTestGroup('async-eval × Deno 栈容错', [

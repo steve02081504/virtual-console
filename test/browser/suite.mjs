@@ -6,7 +6,8 @@ import { assert, assertEqual, runTestGroup } from '../harness.mjs'
 import { packageRoot, spawnChildJsonResults } from '../helpers.mjs'
 
 /**
- *
+ * Node 侧 freshLine 各调用独立记一条。
+ * @returns {void}
  */
 function testNodeFreshLineRecordsWithoutThrow() {
 	console.log('\n=== [Node：freshLine 记录] ===')
@@ -20,7 +21,8 @@ function testNodeFreshLineRecordsWithoutThrow() {
 }
 
 /**
- *
+ * 在子进程中运行 browser 入口冒烟用例。
+ * @returns {void}
  */
 function testBrowserImplementationInChildProcess() {
 	console.log('\n=== [browser 子进程：/browser 入口] ===')
@@ -50,7 +52,7 @@ function testBrowserImplementationInChildProcess() {
 }
 
 /**
- *
+ * @returns {Promise<void>}
  */
 export async function runBrowserTests() {
 	await runTestGroup('浏览器 VirtualConsole', [

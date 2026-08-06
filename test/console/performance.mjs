@@ -10,12 +10,9 @@ const PERF_ENTRY_COUNT = 3000
 const PERF_WARMUP_COUNT = 200
 
 /**
- *
- * @param root0
- * @param root0.label
- * @param root0.recordOutput
- * @param root0.logMultiplier
- * @param root0.writeAsMultiplier
+ * 测量原生 log 与各虚拟路径耗时并断言上限。
+ * @param {{ label: string, recordOutput: boolean, logMultiplier: number, writeAsMultiplier: number }} options - 场景标签、是否记录及相对原生的耗时倍数上限。
+ * @returns {Promise<void>}
  */
 async function assertLogAndWriteAsPerformanceCeiling({ label, recordOutput, logMultiplier, writeAsMultiplier }) {
 	console.log(`\n=== [${label}：log / writeAs 性能上限（各 ${PERF_ENTRY_COUNT} 条，recordOutput=${recordOutput}）] ===`)
@@ -62,10 +59,9 @@ async function assertLogAndWriteAsPerformanceCeiling({ label, recordOutput, logM
 		assertEqual(vcWriteAs.outputEntries.length, 0, '非捕获模式下 writeAs 不写入 outputEntries')
 }
 
-/** 非捕获：虚拟 log / writeAs 均 ≤ 1× 原生（惰性路径接近零分配）。 */
-
 /**
- *
+ * 非捕获：虚拟 log / writeAs 均 ≤ 1× 原生（惰性路径接近零分配）。
+ * @returns {Promise<void>}
  */
 async function testLogAndWriteAsPerformanceCeiling() {
 	await assertLogAndWriteAsPerformanceCeiling({
@@ -76,10 +72,9 @@ async function testLogAndWriteAsPerformanceCeiling() {
 	})
 }
 
-/** 捕获：虚拟 log ≤ 6× 原生，writeAs ≤ 8× 原生。 */
-
 /**
- *
+ * 捕获：虚拟 log ≤ 6× 原生，writeAs ≤ 8× 原生。
+ * @returns {Promise<void>}
  */
 async function testCapturedLogAndWriteAsPerformanceCeiling() {
 	await assertLogAndWriteAsPerformanceCeiling({
@@ -92,10 +87,7 @@ async function testCapturedLogAndWriteAsPerformanceCeiling() {
 
 /**
  * 非捕获 process.stdout.write 性能上限。
- */
-
-/**
- *
+ * @returns {Promise<void>}
  */
 async function testNonCapturingStdoutWritePerformanceCeiling() {
 	console.log(`\n=== [非捕获 stdout.write 性能上限（各 ${PERF_ENTRY_COUNT} 次）] ===`)
@@ -131,7 +123,7 @@ async function testNonCapturingStdoutWritePerformanceCeiling() {
 }
 
 /**
- *
+ * @returns {Promise<void>}
  */
 export async function runPerformanceTests() {
 	await runTestGroup('VirtualConsole 性能上限', [

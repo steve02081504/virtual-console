@@ -14,8 +14,9 @@ const {
 } = await import('@steve02081504/virtual-console/browser')
 
 /**
- *
- * @param options
+ * 创建静默 VirtualConsole（记录输出、不转发原生）。
+ * @param {Record<string, unknown>} [options] - 传给 VirtualConsole 的额外选项。
+ * @returns {InstanceType<typeof VirtualConsole>} 配置好的实例。
  */
 function quietVc(options = {}) {
 	return new VirtualConsole({
@@ -27,7 +28,8 @@ function quietVc(options = {}) {
 }
 
 /**
- *
+ * 运行浏览器冒烟用例并收集结果。
+ * @returns {Promise<import('../helpers.mjs').CaseResult[]>} 各用例执行结果。
  */
 async function runCases() {
 	const results = []
@@ -136,13 +138,15 @@ async function runCases() {
 		const calls = []
 		const fakeConsole = {
 			/**
-			 *
-			 * @param {...any} args
+			 * 记录 log 调用参数。
+			 * @param {...any} args - console.log 参数。
+			 * @returns {void}
 			 */
 			log: (...args) => calls.push(['log', ...args]),
 			/**
-			 *
-			 * @param {...any} args
+			 * 记录 error 调用参数。
+			 * @param {...any} args - console.error 参数。
+			 * @returns {void}
 			 */
 			error: (...args) => calls.push(['error', ...args]),
 		}

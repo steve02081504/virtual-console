@@ -7,14 +7,16 @@ import { async_eval } from '../../node_modules/@steve02081504/async-eval/main.mj
 import { emitChildResults } from '../helpers.mjs'
 
 /**
- *
+ * 创建静默 VirtualConsole。
+ * @returns {VirtualConsole} 记录输出、不转发原生的实例。
  */
 function quietConsole() {
 	return new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 }
 
 /**
- *
+ * 运行 Deno 子进程冒烟用例。
+ * @returns {Promise<import('../helpers.mjs').CaseResult[]>} 各用例执行结果。
  */
 async function runCases() {
 	const results = []
