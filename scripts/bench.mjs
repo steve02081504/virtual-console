@@ -12,6 +12,7 @@ import {
 	newLogEntry,
 	serializeArgSnapshot,
 } from '@steve02081504/virtual-console'
+
 import { formatSnapshot } from '../src/format/snapshot-display.mjs'
 
 /**
@@ -35,6 +36,12 @@ function bench(label, fn, n = 20000, warmup = 2000) {
  */
 function createNullConsole() {
 	const sink = new Writable({
+		/**
+		 *
+		 * @param _chunk
+		 * @param _encoding
+		 * @param callback
+		 */
 		write(_chunk, _encoding, callback) { callback() },
 	})
 	return new console.Console(sink, sink)
@@ -63,8 +70,20 @@ console.log('\n=== dispatch ===')
 console.log('\n=== stream write ===')
 {
 	const sink = new Writable({
+		/**
+		 *
+		 * @param _chunk
+		 * @param _encoding
+		 * @param callback
+		 */
 		write(_chunk, _encoding, callback) { callback() },
 	})
+	/**
+	 *
+	 * @param chunk
+	 * @param encoding
+	 * @param cb
+	 */
 	const nativeWrite = (chunk, encoding, cb) => sink.write(chunk, encoding, cb)
 	bench('native write', i => {
 		nativeWrite(String(i), 'utf8', () => {})

@@ -49,11 +49,10 @@ function pickBestQuote(str) {
 	let singleCount = 0
 	let doubleCount = 0
 	let backtickCount = 0
-	for (const ch of str) {
+	for (const ch of str)
 		if (ch === '\'') singleCount++
 		else if (ch === '"') doubleCount++
 		else if (ch === '`') backtickCount++
-	}
 	if (singleCount <= doubleCount && singleCount <= backtickCount) return '\''
 	if (doubleCount <= singleCount && doubleCount <= backtickCount) return '"'
 	return '`'
