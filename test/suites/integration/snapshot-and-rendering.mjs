@@ -15,6 +15,7 @@ import {
 
 import { pathToFileURL } from '../../../src/core/stack.mjs'
 import { parseCssDecls } from '../../../src/format/css-to-ansi.mjs'
+import { formatSnapshotPlain } from '../../../src/format/snapshot-display.mjs'
 import { applyExpandedSnapshotsInSegments } from '../../../src/wire/expand-wire-segments.mjs'
 import { assert, assertEqual, assertIncludes, runTestGroup } from '../../harness.mjs'
 
@@ -435,6 +436,26 @@ async function testExpansionScopeReuseAcrossToSegments() {
 }
 
 /**
+ * 快照格式化复杂度护栏：深度嵌套应对线性/近线性，不得退化成指数（双重渲染子节点）。
+ * 修好后 depth≈16 约数十 µs；指数退化会到秒级。
+ */
+function testSnapshotFormatComplexityCeiling() {
+	console.log('\n=== [快照格式化：深度嵌套复杂度护栏] ===')
+	let o = { leaf: 1, s: 'x' }
+	for (let i = 0; i < 16; i++) o = { k: o, n: i, t: 'txt' }
+	const snap = serializeArgSnapshot(o, { maxDepth: 20 })
+	// 预热
+	formatSnapshotPlain(snap, { depth: Infinity })
+	const start = performance.now()
+	for (let i = 0; i < 20; i++) formatSnapshotPlain(snap, { depth: Infinity })
+	const ms = performance.now() - start
+	const perOpMs = ms / 20
+	console.log(`  depth≈16 ×20：${ms.toFixed(2)} ms（${(perOpMs * 1000).toFixed(1)} µs/op）`)
+	// 线性路径约几十 µs；留约 3 个数量级余量（50ms），指数退化会远超。
+	assert(perOpMs < 50, `单次 formatSnapshotPlain(depth≈16) 不得超过 50ms（实际 ${perOpMs.toFixed(2)} ms）`)
+}
+
+/**
  * 运行“快照与渲染一致性”分组测试。
  */
 export async function runSnapshotAndRenderingTests() {
@@ -459,5 +480,6 @@ export async function runSnapshotAndRenderingTests() {
 		testExpansionScopeReuseAcrossToSegments,
 		testPathToFileURLWindowsDriveUnescapedColon,
 		testCssHex4DigitAlphaDim,
+		testSnapshotFormatComplexityCeiling,
 	])
 }

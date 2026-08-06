@@ -48,6 +48,7 @@
 	},
 	"scripts": {
 		"test": "node test/runner.mjs",
+		"bench": "node scripts/bench.mjs",
 		"repl": "node scripts/segment-repl.mjs"
 	},
 	"keywords": [
