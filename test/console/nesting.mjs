@@ -1,7 +1,12 @@
-import { VirtualConsole, renderAnsi, renderPlain } from '@steve02081504/virtual-console'
-import { assert, assertEqual, assertIncludes, runTestGroup } from '../harness.mjs'
 import { Buffer } from 'node:buffer'
 
+import { VirtualConsole } from '@steve02081504/virtual-console'
+
+import { assert, assertEqual, assertIncludes, runTestGroup } from '../harness.mjs'
+
+/**
+ *
+ */
 async function testNestedVcConsoleAndStreamReachParent() {
 	console.log('\n=== [嵌套 VC：console 与流写入到达父级] ===')
 	const parent = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -27,6 +32,11 @@ async function testNestedVcConsoleAndStreamReachParent() {
  * @returns {string[]} 收集到的全部 truncated ref。
  */
 
+/**
+ *
+ * @param node
+ * @param out
+ */
 function collectTruncatedRefs(node, out = []) {
 	if (!node || typeof node !== 'object') return out
 	if (Array.isArray(node)) {
@@ -44,6 +54,9 @@ function collectTruncatedRefs(node, out = []) {
  * 嵌套 VC：父子（及三层链）共享同一 LogEntry；展开 ref 一致。
  */
 
+/**
+ *
+ */
 async function testNestedVcSharesSameEntry() {
 	console.log('\n=== [嵌套 VC：共享同一 LogEntry] ===')
 	const grandparent = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -81,6 +94,9 @@ async function testNestedVcSharesSameEntry() {
  * block：记录与监听照常，实际输出延后到 unblock。
  */
 
+/**
+ *
+ */
 async function testNestedLazyCaptureStackPointsToCaller() {
 	console.log('\n=== [嵌套惰性捕获：父层采栈仍指向调用方] ===')
 	const parent = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -101,6 +117,9 @@ async function testNestedLazyCaptureStackPointsToCaller() {
  * README 承诺：包装函数通过 stackFrameSkipCount 跳过自身帧。
  */
 
+/**
+ *
+ */
 async function testStackFrameSkipCountSkipsWrapper() {
 	console.log('\n=== [stackFrameSkipCount：包装函数] ===')
 	const virtualConsole = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -128,6 +147,9 @@ async function testStackFrameSkipCountSkipsWrapper() {
  * 纯透传层不建 LogEntry：spy 收到原始 args；Buffer 原样到达原生 stdout。
  */
 
+/**
+ *
+ */
 async function testPassthroughSkipsCapture() {
 	console.log('\n=== [纯透传：零捕获，原始 args / Buffer] ===')
 	const { streamTable: { stdout } } = await import('../../src/runtime/node/native-output.mjs')
@@ -190,6 +212,9 @@ async function testPassthroughSkipsCapture() {
  * block 期间即便本层不记录，延后输出仍冻结当时条目到父级。
  */
 
+/**
+ *
+ */
 async function testLazyStackParseOnRead() {
 	console.log('\n=== [惰性栈：缓存与渲染不解析] ===')
 	const virtualConsole = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -229,6 +254,9 @@ async function testLazyStackParseOnRead() {
  * @returns {Promise<void>}
  */
 
+/**
+ *
+ */
 async function testPassthroughMethodsRecordedViaStreams() {
 	console.log('\n=== [透传方法：table 在两种 realConsoleOutput 下均记录] ===')
 	const quiet = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -253,6 +281,9 @@ async function testPassthroughMethodsRecordedViaStreams() {
  * 嵌套惰性捕获：子层不记录时由父层捕获，栈仍指向测试文件。
  */
 
+/**
+ *
+ */
 export async function runNestingTests() {
 	await runTestGroup('VirtualConsole 嵌套与透传', [
 		testNestedVcConsoleAndStreamReachParent, testNestedVcSharesSameEntry, testNestedLazyCaptureStackPointsToCaller, testStackFrameSkipCountSkipsWrapper, testPassthroughSkipsCapture, testLazyStackParseOnRead, testPassthroughMethodsRecordedViaStreams,

@@ -1,12 +1,22 @@
 import { Console } from 'node:console'
 import { Writable } from 'node:stream'
+
 import { VirtualConsole } from '@steve02081504/virtual-console'
-import { createNullConsole, measureMs } from '../helpers.mjs'
+
 import { assert, assertEqual, runTestGroup } from '../harness.mjs'
+import { createNullConsole, measureMs } from '../helpers.mjs'
 
 const PERF_ENTRY_COUNT = 3000
 const PERF_WARMUP_COUNT = 200
 
+/**
+ *
+ * @param root0
+ * @param root0.label
+ * @param root0.recordOutput
+ * @param root0.logMultiplier
+ * @param root0.writeAsMultiplier
+ */
 async function assertLogAndWriteAsPerformanceCeiling({ label, recordOutput, logMultiplier, writeAsMultiplier }) {
 	console.log(`\n=== [${label}：log / writeAs 性能上限（各 ${PERF_ENTRY_COUNT} 条，recordOutput=${recordOutput}）] ===`)
 
@@ -54,6 +64,9 @@ async function assertLogAndWriteAsPerformanceCeiling({ label, recordOutput, logM
 
 /** 非捕获：虚拟 log / writeAs 均 ≤ 1× 原生（惰性路径接近零分配）。 */
 
+/**
+ *
+ */
 async function testLogAndWriteAsPerformanceCeiling() {
 	await assertLogAndWriteAsPerformanceCeiling({
 		label: '非捕获虚拟控制台',
@@ -65,6 +78,9 @@ async function testLogAndWriteAsPerformanceCeiling() {
 
 /** 捕获：虚拟 log ≤ 6× 原生，writeAs ≤ 8× 原生。 */
 
+/**
+ *
+ */
 async function testCapturedLogAndWriteAsPerformanceCeiling() {
 	await assertLogAndWriteAsPerformanceCeiling({
 		label: '捕获虚拟控制台',
@@ -78,6 +94,9 @@ async function testCapturedLogAndWriteAsPerformanceCeiling() {
  * 非捕获 process.stdout.write 性能上限。
  */
 
+/**
+ *
+ */
 async function testNonCapturingStdoutWritePerformanceCeiling() {
 	console.log(`\n=== [非捕获 stdout.write 性能上限（各 ${PERF_ENTRY_COUNT} 次）] ===`)
 	const sink = new Writable({ /**
@@ -111,6 +130,9 @@ async function testNonCapturingStdoutWritePerformanceCeiling() {
 	assert(virtualMs <= ceilingMs, `非捕获 stdout.write (${virtualMs.toFixed(2)} ms) 不得超过原生的 3 倍`)
 }
 
+/**
+ *
+ */
 export async function runPerformanceTests() {
 	await runTestGroup('VirtualConsole 性能上限', [
 		testLogAndWriteAsPerformanceCeiling, testCapturedLogAndWriteAsPerformanceCeiling, testNonCapturingStdoutWritePerformanceCeiling,

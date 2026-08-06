@@ -1,4 +1,5 @@
 import { dict } from '../../util/dict.mjs'
+
 import { DirLogEntry } from './dir-entry.mjs'
 import { FreshLineLogEntry } from './fresh-line-entry.mjs'
 import { LogEntry } from './log-entry.mjs'

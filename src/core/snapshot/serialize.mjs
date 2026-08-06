@@ -29,7 +29,7 @@ function truncationLabel(value) {
  */
 function truncateOrPlaceholder(value, expansionScope) {
 	if (expansionScope && value !== null && typeof value === 'object')
-		return { kind: 'truncated', ref: expansionScope.allocRef(/** @type {object} */ (value)), label: truncationLabel(value) }
+		return { kind: 'truncated', ref: expansionScope.allocRef(/** @type {object} */ value), label: truncationLabel(value) }
 	return { kind: 'truncated', ref: '', label: truncationLabel(value) }
 }
 
@@ -75,10 +75,10 @@ function attachInspectRefIfNeeded(snap, valueObject, walkContext) {
 	const inspectRefIndex = walkContext.circularRefs?.get(valueObject)
 	if (inspectRefIndex === undefined) return snap
 	if (snap === null || typeof snap !== 'object' || Array.isArray(snap)) return snap
-	return /** @type {import('../../shared.d.mts').ArgSnapshot} */ ({
+	return /** @type {import('../../shared.d.mts').ArgSnapshot} */ {
 		...snap,
 		inspectRefId: inspectRefIndex,
-	})
+	}
 }
 
 /**
@@ -91,8 +91,8 @@ function snapshotPrimitive(value, valueType) {
 	if (valueType === 'string' || valueType === 'number' || valueType === 'boolean')
 		return { kind: valueType, value }
 	if (valueType === 'undefined') return { kind: 'undefined', value: 'undefined' }
-	if (valueType === 'bigint') return { kind: 'bigint', value: /** @type {bigint} */ (value).toString() }
-	if (valueType === 'symbol') return { kind: 'symbol', value: /** @type {symbol} */ (value).toString() }
+	if (valueType === 'bigint') return { kind: 'bigint', value: /** @type {bigint} */ value.toString() }
+	if (valueType === 'symbol') return { kind: 'symbol', value: /** @type {symbol} */ value.toString() }
 	if (valueType === 'function') {
 		let isClass = false
 		try {
@@ -101,7 +101,7 @@ function snapshotPrimitive(value, valueType) {
 		catch {
 			isClass = false
 		}
-		return { kind: 'function', value: /** @type {Function} */ (value).name || '(anonymous)', isClass }
+		return { kind: 'function', value: /** @type {Function} */ value.name || '(anonymous)', isClass }
 	}
 	return { kind: 'unknown', value: String(value) }
 }
@@ -130,8 +130,8 @@ function collectOwnEntries(targetObject, serializeProperty) {
  */
 function snapshotBoxedPrimitive(boxedObject, kind, textField, text, serializeChild) {
 	const entries = collectOwnEntries(boxedObject, serializeChild)
-	if (!entries.length) return /** @type {import('../../shared.d.mts').ArgSnapshot} */ ({ kind, [textField]: text })
-	return /** @type {import('../../shared.d.mts').ArgSnapshot} */ ({ kind, [textField]: text, entries })
+	if (!entries.length) return /** @type {import('../../shared.d.mts').ArgSnapshot} */ { kind, [textField]: text }
+	return /** @type {import('../../shared.d.mts').ArgSnapshot} */ { kind, [textField]: text, entries }
 }
 
 /**
@@ -152,10 +152,10 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 	const serializeChild = child => walkFn(child, depth + 1, walkContext)
 
 	if (depth >= maxDepth)
-		return truncateOrPlaceholder(/** @type {object} */ (value), expansionScope)
+		return truncateOrPlaceholder(/** @type {object} */ value, expansionScope)
 
 	if (tag === '[object Error]') {
-		const err = /** @type {Error & Record<string, unknown>} */ (value)
+		const err = /** @type {Error & Record<string, unknown>} */ value
 		const entries = []
 		for (const key of Object.keys(err))
 			if (!['stack', 'message', 'name'].includes(key))
@@ -168,13 +168,13 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 			entries,
 		}
 	}
-	if (tag === '[object Date]') return { kind: 'Date', value: /** @type {Date} */ (value).getTime() }
-	if (tag === '[object RegExp]') return { kind: 'RegExp', value: /** @type {RegExp} */ (value).toString() }
+	if (tag === '[object Date]') return { kind: 'Date', value: /** @type {Date} */ value.getTime() }
+	if (tag === '[object RegExp]') return { kind: 'RegExp', value: /** @type {RegExp} */ value.toString() }
 
 	if (tag === '[object Number]') {
 		const unboxed = Number.prototype.valueOf.call(value)
 		return snapshotBoxedPrimitive(
-			/** @type {object} */ (value),
+			/** @type {object} */ value,
 			'Number',
 			'boxedText',
 			Object.is(unboxed, -0) ? '-0' : String(unboxed),
@@ -183,7 +183,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 	}
 	if (tag === '[object Boolean]')
 		return snapshotBoxedPrimitive(
-			/** @type {object} */ (value),
+			/** @type {object} */ value,
 			'Boolean',
 			'boxedText',
 			String(Boolean.prototype.valueOf.call(value)),
@@ -191,7 +191,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 		)
 	if (tag === '[object String]')
 		return snapshotBoxedPrimitive(
-			/** @type {object} */ (value),
+			/** @type {object} */ value,
 			'String',
 			'boxedString',
 			String.prototype.valueOf.call(value),
@@ -199,7 +199,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 		)
 
 	if (tag === '[object Map]') {
-		const map = /** @type {Map<unknown, unknown>} */ (value)
+		const map = /** @type {Map<unknown, unknown>} */ value
 		return {
 			kind: 'Map',
 			items: [...map.entries()].map(([key, val]) => ({
@@ -210,7 +210,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 	}
 
 	if (tag === '[object Set]') {
-		const set = /** @type {Set<unknown>} */ (value)
+		const set = /** @type {Set<unknown>} */ value
 		return {
 			kind: 'Set',
 			items: [...set.values()].map(el => serializeChild(el)),
@@ -220,7 +220,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 	if (Array.isArray(value))
 		return { kind: 'array', items: value.map(item => serializeChild(item)) }
 
-	const obj = /** @type {object} */ (value)
+	const obj = /** @type {object} */ value
 	return {
 		kind: obj.constructor?.name || 'object',
 		entries: collectOwnEntries(obj, serializeChild),
@@ -266,7 +266,7 @@ function walk(value, depth, walkContext) {
 	if (valueType !== 'object')
 		return snapshotPrimitive(value, valueType)
 
-	const obj = /** @type {object} */ (value)
+	const obj = /** @type {object} */ value
 	if (isProxyInstance(obj)) {
 		const stack = walkContext.seenStack
 		// 互相转发的 Proxy 外壳同样成环，且外壳不进 walkObject，需在此自行入栈。

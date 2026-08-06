@@ -17,6 +17,7 @@ import { pathToFileURL } from '../src/core/stack.mjs'
 import { parseCssDecls } from '../src/format/css-to-ansi.mjs'
 import { formatSnapshot } from '../src/format/snapshot-display.mjs'
 import { applyExpandedSnapshotsInSegments } from '../src/wire/expand-wire-segments.mjs'
+
 import { assert, assertEqual, assertIncludes, runTestGroup } from './harness.mjs'
 
 /**
@@ -508,7 +509,7 @@ function testSelfForwardingProxyTerminates() {
 	target.x = proxy
 	const snap = serializeArgSnapshot(proxy)
 	assertEqual(snap.kind, 'Proxy', '外壳仍标记为 Proxy')
-	assertEqual(/** @type {{ target: { kind: string } }} */ (snap).target.kind, 'circular', '转发回自身时判定为环')
+	assertEqual(/** @type {{ target: { kind: string } }} */ snap.target.kind, 'circular', '转发回自身时判定为环')
 }
 
 /**

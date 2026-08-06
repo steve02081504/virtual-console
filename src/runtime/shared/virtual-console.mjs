@@ -49,7 +49,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		 * @returns {boolean} 可直接跨实例访问 `#` 成员时为 `true`。
 		 */
 		static #sharesMixinPrivates(target) {
-			return isVirtualConsole(target) && #ingest in /** @type {object} */ (target)
+			return isVirtualConsole(target) && #ingest in /** @type {object} */ target
 		}
 
 		/**

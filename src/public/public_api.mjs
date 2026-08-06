@@ -36,6 +36,9 @@ export {
 	serializeArgSnapshot,
 	DEFAULT_SNAPSHOT_DEPTH,
 } from '../core/snapshot/serialize.mjs'
+/**
+ *
+ */
 export {
 	expandSnapshotRef,
 	createExpansionScope,

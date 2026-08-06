@@ -6,14 +6,23 @@ import { VirtualConsole } from '@steve02081504/virtual-console'
 import { assert, assertEqual, runTestGroup } from '../harness.mjs'
 import { packageRoot, spawnChildJsonResults } from '../helpers.mjs'
 
+/**
+ *
+ */
 function resolveDenoExecutable() {
 	return spawnSync('deno', ['--version'], { encoding: 'utf8' }).status === 0 ? 'deno' : null
 }
 
+/**
+ *
+ */
 async function testAsyncEvalConsoleLogOnNode() {
 	console.log('\n=== [async-eval + VirtualConsole（Node）] ===')
 
 	const { async_eval } = await import('@steve02081504/async-eval')
+	/**
+	 *
+	 */
 	const quietConsole = () => new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
 	const pure = await async_eval('72', { console: quietConsole() })
@@ -28,6 +37,9 @@ async function testAsyncEvalConsoleLogOnNode() {
 	assert(Array.isArray(withLog.outputEntries[0]?.stack), 'log 条目含 stack 数组')
 }
 
+/**
+ *
+ */
 async function testAsyncEvalConsoleLogOnDeno() {
 	console.log('\n=== [async-eval + VirtualConsole（Deno 子进程）] ===')
 
@@ -54,6 +66,9 @@ async function testAsyncEvalConsoleLogOnDeno() {
 	}
 }
 
+/**
+ *
+ */
 export async function runDenoTests() {
 	await runTestGroup('async-eval × Deno 栈容错', [
 		testAsyncEvalConsoleLogOnNode,

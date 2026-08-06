@@ -13,6 +13,10 @@ const {
 	getGlobalConsoleResolver,
 } = await import('@steve02081504/virtual-console/browser')
 
+/**
+ *
+ * @param options
+ */
 function quietVc(options = {}) {
 	return new VirtualConsole({
 		recordOutput: true,
@@ -22,6 +26,9 @@ function quietVc(options = {}) {
 	})
 }
 
+/**
+ *
+ */
 async function runCases() {
 	const results = []
 
@@ -128,7 +135,15 @@ async function runCases() {
 	results.push(await runCase('stream_pseudo_methods_emit_native', async () => {
 		const calls = []
 		const fakeConsole = {
+			/**
+			 *
+			 * @param {...any} args
+			 */
 			log: (...args) => calls.push(['log', ...args]),
+			/**
+			 *
+			 * @param {...any} args
+			 */
 			error: (...args) => calls.push(['error', ...args]),
 		}
 		const vc = new VirtualConsole({ recordOutput: false, realConsoleOutput: true, baseConsole: fakeConsole })

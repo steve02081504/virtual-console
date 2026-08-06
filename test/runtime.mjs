@@ -7,6 +7,7 @@ import {
 } from '@steve02081504/virtual-console'
 
 import { parseStackTraceLine, pathToFileURL, stackFrameToOsc8Href } from '../src/core/stack.mjs'
+
 import { assert, assertEqual, runTestGroup } from './harness.mjs'
 
 /**

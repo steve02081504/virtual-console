@@ -3,13 +3,19 @@
  */
 import { VirtualConsole } from '@steve02081504/virtual-console'
 
-import { emitChildResults } from '../helpers.mjs'
 import { async_eval } from '../../node_modules/@steve02081504/async-eval/main.mjs'
+import { emitChildResults } from '../helpers.mjs'
 
+/**
+ *
+ */
 function quietConsole() {
 	return new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 }
 
+/**
+ *
+ */
 async function runCases() {
 	const results = []
 

@@ -1,11 +1,14 @@
 import { spawnSync } from 'node:child_process'
 import { Console } from 'node:console'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Writable } from 'node:stream'
+import { fileURLToPath } from 'node:url'
 
 /** @typedef {{ name: string, ok: boolean, detail?: string }} CaseResult */
 
+/**
+ *
+ */
 export const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
@@ -13,7 +16,13 @@ export const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
  * @returns {Console}
  */
 export function createNullConsole() {
-	const sink = new Writable({ write(_chunk, _encoding, callback) { callback() } })
+	const sink = new Writable({ /**
+	 *
+	 * @param _chunk
+	 * @param _encoding
+	 * @param callback
+	 */
+		write(_chunk, _encoding, callback) { callback() } })
 	return new Console({ stdout: sink, stderr: sink })
 }
 

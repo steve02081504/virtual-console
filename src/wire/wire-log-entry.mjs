@@ -1,9 +1,9 @@
 import supportsAnsiDefault from 'supports-ansi'
 
 import { methodNameToLevel } from '../core/entries/level.mjs'
-import { dict } from '../util/dict.mjs'
 import { resolvePrimaryCallsiteFromSegments } from '../core/stack.mjs'
 import { renderAnsi, renderHtml, renderPlain } from '../format/render.mjs'
+import { dict } from '../util/dict.mjs'
 
 import {
 	applyExpandedSnapshotsInSegments,

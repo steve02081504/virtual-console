@@ -1,7 +1,7 @@
-import { passed, failed, failures, resetHarness } from './harness.mjs'
 import { runBrowserTests } from './browser/suite.mjs'
 import { runConsoleTests } from './console/index.mjs'
 import { runDenoTests } from './deno/suite.mjs'
+import { passed, failed, failures, resetHarness } from './harness.mjs'
 import { runRuntimeTests } from './runtime.mjs'
 import { runSnapshotTests } from './snapshot.mjs'
 import { runWireTests } from './wire.mjs'

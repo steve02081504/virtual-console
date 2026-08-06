@@ -28,7 +28,7 @@ export function getOwnPropertySnapshotValue(hostObject, key) {
 	try {
 		const descriptor = Reflect.getOwnPropertyDescriptor(hostObject, key)
 		if (!descriptor)
-			return /** @type {Record<string, unknown>} */ (hostObject)[key]
+			return /** @type {Record<string, unknown>} */ hostObject[key]
 		if ('value' in descriptor)
 			return descriptor.value
 		if (typeof descriptor.get === 'function')
@@ -69,9 +69,9 @@ function tryResolveTransparentProxyTarget(proxy) {
 	for (const key of proxyKeys) {
 		const val = getOwnPropertySnapshotValue(proxy, key)
 		if (val === null || typeof val !== 'object') continue
-		if (!matchesTransparentProxyTarget(proxy, /** @type {object} */ (val))) continue
+		if (!matchesTransparentProxyTarget(proxy, /** @type {object} */ val)) continue
 		if (found !== undefined && found !== val) return undefined
-		found = /** @type {object} */ (val)
+		found = /** @type {object} */ val
 	}
 	return found
 }
@@ -90,7 +90,7 @@ function tryUnwrapForwardingProxy(proxy) {
 	const innerKeys = Object.keys(inner)
 	if (innerKeys.length !== 1 || innerKeys[0] !== key) return undefined
 	if (getOwnPropertySnapshotValue(inner, key) !== inner) return undefined
-	return /** @type {object} */ (inner)
+	return /** @type {object} */ inner
 }
 
 /**

@@ -5,6 +5,9 @@ import { VirtualConsole } from '@steve02081504/virtual-console'
 import { assert, assertEqual, runTestGroup } from '../harness.mjs'
 import { packageRoot, spawnChildJsonResults } from '../helpers.mjs'
 
+/**
+ *
+ */
 function testNodeFreshLineRecordsWithoutThrow() {
 	console.log('\n=== [Node：freshLine 记录] ===')
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -16,6 +19,9 @@ function testNodeFreshLineRecordsWithoutThrow() {
 	assertEqual(vc.outputEntries[1].args[1], 'step2', '第二条内容为 step2')
 }
 
+/**
+ *
+ */
 function testBrowserImplementationInChildProcess() {
 	console.log('\n=== [browser 子进程：/browser 入口] ===')
 
@@ -43,6 +49,9 @@ function testBrowserImplementationInChildProcess() {
 	assertEqual(status, 0, 'browser 子进程退出码为 0')
 }
 
+/**
+ *
+ */
 export async function runBrowserTests() {
 	await runTestGroup('浏览器 VirtualConsole', [
 		testNodeFreshLineRecordsWithoutThrow,
