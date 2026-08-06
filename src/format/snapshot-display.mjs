@@ -66,9 +66,14 @@ export function resolveValueRenderOptions(segment, supportsAnsi) {
  * @returns {"'" | '"' | '`'} 冲突最少的引号字符。
  */
 function pickBestQuote(str) {
-	const singleCount = (str.match(/'/g) || []).length
-	const doubleCount = (str.match(/"/g) || []).length
-	const backtickCount = (str.match(/`/g) || []).length
+	let singleCount = 0
+	let doubleCount = 0
+	let backtickCount = 0
+	for (const ch of str) {
+		if (ch === '\'') singleCount++
+		else if (ch === '"') doubleCount++
+		else if (ch === '`') backtickCount++
+	}
 	if (singleCount <= doubleCount && singleCount <= backtickCount) return '\''
 	if (doubleCount <= singleCount && doubleCount <= backtickCount) return '"'
 	return '`'
@@ -81,6 +86,8 @@ function pickBestQuote(str) {
  */
 function quoteSingleJsString(raw) {
 	const value = String(raw)
+	if (!/[\0-\x1f\\'"`]/.test(value) && !value.includes('${'))
+		return `'${value}'`
 	const quote = pickBestQuote(value)
 	let out = ''
 	for (let i = 0; i < value.length; i += 1) {
@@ -294,35 +301,40 @@ function formatDateSnapshotValue(ms) {
 	}
 }
 
+/** @type {Readonly<{ reset: string; green: string; yellow: string; cyan: string; grey: string; magenta: string; red: string; dim: string }>} */
+const ANSI_COLORS = {
+	reset: '\x1b[0m',
+	green: '\x1b[32m',
+	yellow: '\x1b[33m',
+	cyan: '\x1b[36m',
+	grey: '\x1b[90m',
+	magenta: '\x1b[35m',
+	red: '\x1b[31m',
+	dim: '\x1b[2m',
+}
+
+/** @type {Readonly<{ reset: string; green: string; yellow: string; cyan: string; grey: string; magenta: string; red: string; dim: string }>} */
+const PLAIN_COLORS = {
+	reset: '',
+	green: '',
+	yellow: '',
+	cyan: '',
+	grey: '',
+	magenta: '',
+	red: '',
+	dim: '',
+}
+
 /**
  * @param {unknown} snap - 任意快照。
  * @param {FormatSnapshotOptions} options - 格式选项（含 `depth`、`colorize`）。
  * @returns {string} 单棵快照树对应的展示文本。
  */
 function formatSnapshotInner(snap, options) {
-	const colorize = options.colorize !== false
+	const colorize = options.colorize ?? true
 	const depthLimit = options.depth ?? Infinity
-	const indentUnit = typeof options.indent === 'string' ? options.indent : '\t'
-	const colors = colorize ? {
-		reset: '\x1b[0m',
-		green: '\x1b[32m',
-		yellow: '\x1b[33m',
-		cyan: '\x1b[36m',
-		grey: '\x1b[90m',
-		magenta: '\x1b[35m',
-		red: '\x1b[31m',
-		dim: '\x1b[2m',
-	}
-		: {
-			reset: '',
-			green: '',
-			yellow: '',
-			cyan: '',
-			grey: '',
-			magenta: '',
-			red: '',
-			dim: '',
-		}
+	const indentUnit = options.indent ?? '\t'
+	const colors = colorize ? ANSI_COLORS : PLAIN_COLORS
 
 	/**
 	 * @param {unknown} snapshotNode - 快照树上的节点（或兜底的非对象原语）。
