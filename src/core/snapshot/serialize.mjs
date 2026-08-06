@@ -171,7 +171,8 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 	if (tag === '[object Date]') return { kind: 'Date', value: /** @type {Date} */ value.getTime() }
 	if (tag === '[object RegExp]') return { kind: 'RegExp', value: /** @type {RegExp} */ value.toString() }
 
-	if (tag === '[object Number]') {
+	// toString 标签可被 Symbol.toStringTag 伪造；拆箱失败则退回普通对象序列化。
+	if (tag === '[object Number]') try {
 		const unboxed = Number.prototype.valueOf.call(value)
 		return snapshotBoxedPrimitive(
 			/** @type {object} */ value,
@@ -180,8 +181,8 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 			Object.is(unboxed, -0) ? '-0' : String(unboxed),
 			serializeChild,
 		)
-	}
-	if (tag === '[object Boolean]')
+	} catch { /* fall through */ }
+	if (tag === '[object Boolean]') try {
 		return snapshotBoxedPrimitive(
 			/** @type {object} */ value,
 			'Boolean',
@@ -189,7 +190,8 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 			String(Boolean.prototype.valueOf.call(value)),
 			serializeChild,
 		)
-	if (tag === '[object String]')
+	} catch { /* fall through */ }
+	if (tag === '[object String]') try {
 		return snapshotBoxedPrimitive(
 			/** @type {object} */ value,
 			'String',
@@ -197,8 +199,9 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 			String.prototype.valueOf.call(value),
 			serializeChild,
 		)
+	} catch { /* fall through */ }
 
-	if (tag === '[object Map]') {
+	if (tag === '[object Map]') try {
 		const map = /** @type {Map<unknown, unknown>} */ value
 		return {
 			kind: 'Map',
@@ -207,15 +210,15 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 				value: serializeChild(val),
 			})),
 		}
-	}
+	} catch { /* fall through */ }
 
-	if (tag === '[object Set]') {
+	if (tag === '[object Set]') try {
 		const set = /** @type {Set<unknown>} */ value
 		return {
 			kind: 'Set',
 			items: [...set.values()].map(el => serializeChild(el)),
 		}
-	}
+	} catch { /* fall through */ }
 
 	if (Array.isArray(value))
 		return { kind: 'array', items: value.map(item => serializeChild(item)) }

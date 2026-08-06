@@ -231,14 +231,15 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 
 		/**
 		 * 退出一层 block；深度归零时按序执行待输出回调并恢复长度限制。
-		 * 深度已为 0 时调用是空操作（空重放 + 裁剪），不抛错。
-		 * @returns {void}
+		 * 深度已为 0 时直接返回（不重放、不裁剪），不抛错。
+		 * @returns {boolean} 深度归零时为 `true`。
 		 */
 		unblock() {
-			if (this.#blockDepth && --this.#blockDepth) return
+			if (!this.#blockDepth || --this.#blockDepth) return
 			for (const callback of this.#pendingOutput.splice(0))
 				callback()
 			this.#trimEntries()
+			return true
 		}
 
 		/**

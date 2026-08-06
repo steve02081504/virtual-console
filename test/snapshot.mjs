@@ -487,6 +487,21 @@ function testBoxedPrimitiveParity() {
 }
 
 /**
+ * 伪造 Symbol.toStringTag 不得使装箱拆箱抛错；应退回普通对象快照。
+ */
+function testSpoofedBoxedToStringTagFallsBack() {
+	console.log('\n=== [伪造 toStringTag 装箱拆箱回退] ===')
+	for (const tag of ['Number', 'Boolean', 'String']) {
+		const spoof = { x: 1, [Symbol.toStringTag]: tag }
+		const nested = { inner: { [Symbol.toStringTag]: 'Number', y: 2 } }
+		const snap = serializeArgSnapshot(spoof)
+		assertEqual(snap.kind, 'Object', `伪造 ${tag} 退回普通对象`)
+		const nestedSnap = serializeArgSnapshot(nested)
+		assertEqual(nestedSnap.kind, 'Object', `嵌套伪造 ${tag} 不抛错`)
+	}
+}
+
+/**
  * 非标识符键的转义须与 util.inspect 一致（反斜杠 / CR / TAB / 控制字符 / 引号）。
  */
 function testEntryKeyEscapeParity() {
@@ -559,6 +574,7 @@ export async function runSnapshotTests() {
 		testPathToFileURLWindowsDriveUnescapedColon,
 		testCssHex4DigitAlphaDim,
 		testBoxedPrimitiveParity,
+		testSpoofedBoxedToStringTagFallsBack,
 		testEntryKeyEscapeParity,
 		testSelfForwardingProxyTerminates,
 		testSnapshotFormatComplexityCeiling,

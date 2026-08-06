@@ -289,7 +289,7 @@ export interface VirtualConsoleLike {
 	outputEntries: LogEntry[]
 	writeAs(level: WriteAsLevelArg, ...args: unknown[]): void
 	block(): void
-	unblock(): void
+	unblock(): boolean
 }
 
 /**

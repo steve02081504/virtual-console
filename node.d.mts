@@ -88,8 +88,9 @@ export class VirtualConsole extends Console {
 	/**
 	 * 退出一层 block；深度归零时按序重放待输出内容（含 `clear` 标记）并恢复长度限制。
 	 * 深度已为 0 时调用是空操作：不抛错，`blocked` 保持 `false`。
+	 * @returns {boolean} 深度归零时为 `true`。
 	 */
-	unblock(): void
+	unblock(): boolean
 
 	/**
 	 * 传入函数时，在新的异步上下文中执行该函数，`console` 在函数内指向此实例，
