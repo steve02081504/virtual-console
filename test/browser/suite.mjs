@@ -52,6 +52,7 @@ function testBrowserImplementationInChildProcess() {
 }
 
 /**
+ * 运行浏览器子进程测试套件。
  * @returns {Promise<void>}
  */
 export async function runBrowserTests() {

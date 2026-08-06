@@ -11,6 +11,7 @@ import {
 } from './expand-wire-segments.mjs'
 
 /**
+ * 线路下行单条 JSON 载荷。
  * @typedef {object} WireLogEntryPayload
  * @property {string} [level]
  * @property {string} [method]
@@ -21,12 +22,14 @@ import {
  */
 
 /**
+ * 线路条目渲染上下文。
  * @typedef {object} WireContext
  * @property {(ref: string, maxDepth?: number) => Promise<unknown>} requestExpand - 通过线路请求 `vc_expand_request` 并兑现快照。
  * @property {boolean} [supportsAnsi] - 未指定时使用全局 `supports-ansi` 检测结果。
  */
 
 /**
+ * 线路 `render*` 选项。
  * @typedef {object} WireRenderOptions
  * @property {string} [indent='\t'] - 多行结构缩进单元。
  * @property {number} [maxDepth=Infinity] - 值快照最大展开深度。
@@ -37,7 +40,10 @@ import {
  * 注意：展开逻辑会就地更新 `segments` 引用中的 `truncated` 节点，以便后续渲染复用已展开结果。
  */
 export class WireLogEntry {
-	/** @type {(Promise<import('../shared.d.mts').LogSegment[]> & { targetDepth?: number }) | null} */
+	/**
+	 * 展开中的 Promise 缓存（含目标深度）。
+	 * @type {(Promise<import('../shared.d.mts').LogSegment[]> & { targetDepth?: number }) | null}
+	 */
 	#expandPromise = null
 
 	/**
@@ -108,6 +114,7 @@ export class WireLogEntry {
 	}
 
 	/**
+	 * 归一化 `render*` 选项（缩进与最大深度）。
 	 * @param {WireRenderOptions | undefined} options - 外部渲染选项。
 	 * @returns {{ indent: string, maxDepth: number }} 归一化后的渲染选项。
 	 */
@@ -119,6 +126,7 @@ export class WireLogEntry {
 	}
 
 	/**
+	 * 确保片段已展开到目标深度（复用进行中的 Promise）。
 	 * @param {number} [maxDepth] - 目标展开深度；未提供时表示尽可能展开。
 	 * @returns {Promise<import('../shared.d.mts').LogSegment[]>} 展开后的片段副本。
 	 */
@@ -144,6 +152,7 @@ export class WireLogEntry {
 	}
 
 	/**
+	 * 克隆片段并批量请求展开所有 `truncated.ref`。
 	 * @param {number} targetDepth - 本轮展开目标深度。
 	 * @returns {Promise<import('../shared.d.mts').LogSegment[]>} 克隆并替换截断节点后的片段。
 	 */
@@ -195,9 +204,7 @@ export class FreshLineWireLogEntry extends WireLogEntry {
 		this.id = String(payload.id ?? '')
 	}
 
-	/**
-	 * @returns {Record<string, unknown>} JSON 友好对象。
-	 */
+	/** @returns {Record<string, unknown>} 在基类字段上追加 `id`。 */
 	toJSON() {
 		return {
 			...super.toJSON(),
@@ -224,6 +231,7 @@ const methodToConstructorMap = dict({
 })
 
 /**
+ * 按 method 选择 Wire 条目子类。
  * @param {unknown} method - 线路条目 method。
  * @returns {typeof WireLogEntry} 对应条目构造器。
  */

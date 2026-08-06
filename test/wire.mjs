@@ -247,7 +247,7 @@ async function testLogWireServerBuiltInClientMessages() {
 	const vc = {
 		outputEntries: [],
 		/**
-		 *
+		 * 测试桩：忽略日志条目订阅。
 		 */
 		addLogEntryListener: () => { },
 		/**

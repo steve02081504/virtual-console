@@ -8,6 +8,7 @@ import { parseStackTraceLine, stackFrameToOsc8Href } from '../core/stack.mjs'
 import { ansiHyperlink } from './ansi.mjs'
 
 /**
+ * 快照展示格式化选项。
  * @typedef {object} FormatSnapshotOptions
  * @property {number} [depth=Infinity] - 对象展开最大深度（超过则输出 `[Object]` 风格占位）。
  * @property {string} [indent='\t'] - 多行结构的缩进单元。
@@ -29,6 +30,7 @@ export function mergeDirOptionsForRender(dirOpts, fallback = { depth: DEFAULT_SN
 }
 
 /**
+ * 解析 value 片段的渲染选项。
  * @param {{ dirOptions?: import('../shared.d.mts').DirOptionsPayload }} segment - `kind: 'value'` 片段。
  * @param {boolean} supportsAnsi - 条目级 ANSI 开关。
  * @returns {{ depth: number; colorize: boolean }} `formatSnapshot` 使用的深度与是否着色。
@@ -140,6 +142,7 @@ function wrapErrorEntriesPlain(extra, opts = {}) {
 }
 
 /**
+ * 为 Error 自有属性段包裹 ANSI 样式。
  * @param {string} extra - 已格式化的 enumerable（可含 ANSI）。
  * @param {{ reset: string; grey: string }} colors - 括号用灰色。
  * @param {{ openAfterStack?: boolean }} [opts] - 与 {@link wrapErrorEntriesPlain} 一致。
@@ -317,6 +320,7 @@ const PLAIN_COLORS = {
 }
 
 /**
+ * 将快照树格式化为展示文本。
  * @param {unknown} snap - 任意快照。
  * @param {FormatSnapshotOptions} [options] - 格式选项（含 `depth`、`colorize`）。
  * @returns {string} 单棵快照树对应的展示文本（`colorize: false` 时为纯文本）。
@@ -328,6 +332,7 @@ export function formatSnapshot(snap, options = {}) {
 	const colors = colorize ? ANSI_COLORS : PLAIN_COLORS
 
 	/**
+	 * 递归格式化快照树节点。
 	 * @param {unknown} snapshotNode - 快照树上的节点（或兜底的非对象原语）。
 	 * @param {number} objectDepth - 对象深度。
 	 * @returns {string} 该节点在 plain/ANSI 下的展示串（不含 `&lt;ref *N&gt;` 前缀；外层 `formatNode` 负责前缀）。
@@ -513,6 +518,7 @@ export function formatSnapshot(snap, options = {}) {
 	}
 
 	/**
+	 * 为带 `inspectRefId` 的节点添加 `<ref *N>` 前缀后返回正文。
 	 * @param {unknown} snapshotNode - 快照树上的节点（或兜底的非对象原语）。
 	 * @param {number} objectDepth - 对象深度。
 	 * @returns {string} 与 `util.inspect` 一致的 `&lt;ref *N&gt;` 前缀 + 正文。

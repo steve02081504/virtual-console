@@ -34,12 +34,14 @@ function truncateOrPlaceholder(value, expansionScope) {
 }
 
 /**
+ * 参数快照序列化选项。
  * @typedef {object} SerializeArgSnapshotOptions
  * @property {number} [maxDepth=DEFAULT_SNAPSHOT_DEPTH]
  * @property {{ allocRef: (t: object) => string } | null} [expansionScope=null]
  */
 
 /**
+ * 快照 DFS 遍历上下文。
  * @typedef {object} SerializeWalkContext
  * @property {object[]} seenStack - 当前 DFS 路径上的对象（与 Node `util.inspect` 的 `ctx.seen` 一致；非栈内重复不算环）。
  * @property {Map<object, number> | undefined} circularRefs - 作为 `[Circular *N]` / `<ref *N>` 目标的对象 → 编号。
@@ -146,6 +148,7 @@ function snapshotBoxedPrimitive(boxedObject, kind, textField, text, serializeChi
 function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 	const { maxDepth, expansionScope } = walkContext
 	/**
+	 * 递归序列化子属性或元素。
 	 * @param {unknown} child - 子属性或元素值。
 	 * @returns {import('../../shared.d.mts').ArgSnapshot} 子快照。
 	 */

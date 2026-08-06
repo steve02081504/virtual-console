@@ -192,6 +192,7 @@ async function testLogEntryStack() {
 	const vc2 = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 
 	/**
+	 * 测试辅助：在 stdout.write 调用栈中占位。
 	 * @returns {void}
 	 */
 	function callerOfStdoutWrite() {
@@ -221,7 +222,7 @@ async function testLogEntryStack() {
 }
 
 /**
- *
+ * 运行运行时测试套件。
  */
 export async function runRuntimeTests() {
 	await runTestGroup('runtime 与上下文隔离', [

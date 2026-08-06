@@ -28,6 +28,7 @@ function getListenerInfo(stream) {
 	if (existing) return existing
 	const listenerInfo = {
 		/**
+		 * 将底层 `resize` 事件转发到所有关联虚拟流。
 		 * @returns {void}
 		 */
 		listener: () => {
@@ -70,9 +71,7 @@ export class VirtualStream extends Writable {
 		}
 	}
 
-	/**
-	 * @type {import('node:stream').Writable}
-	 */
+	/** @type {import('node:stream').Writable} */
 	#targetStream
 
 	/** @returns {boolean} 底层流是否为 TTY。 */

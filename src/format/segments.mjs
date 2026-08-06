@@ -14,11 +14,21 @@ import {
 /** 普通 console 条目末尾换行片段（流条目不含）。 */
 export const ENTRY_TRAILING_NEWLINE = Object.freeze({ kind: 'text', text: '\n' })
 
-/** @typedef {{ kind: 'literal', text: string }} PrintfLiteralPart */
-/** @typedef {{ kind: 'arg', spec: string, value: any }} PrintfArgPart */
-/** @typedef {{ kind: 'missingSpec', spec: string }} PrintfMissingPart */
+/**
+ * printf 模板字面量片段。
+ * @typedef {{ kind: 'literal', text: string }} PrintfLiteralPart
+ */
+/**
+ * printf 占位符与对应实参。
+ * @typedef {{ kind: 'arg', spec: string, value: any }} PrintfArgPart
+ */
+/**
+ * printf 占位符缺少实参时的片段。
+ * @typedef {{ kind: 'missingSpec', spec: string }} PrintfMissingPart
+ */
 
 /**
+ * printf 片段构建上下文。
  * @typedef {object} PrintfSegmentBuildContext
  * @property {import('../shared.d.mts').LogSegment[]} segments
  * @property {number} maxDepth

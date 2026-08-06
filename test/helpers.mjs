@@ -4,7 +4,10 @@ import { dirname, join } from 'node:path'
 import { Writable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
-/** @typedef {{ name: string, ok: boolean, detail?: string }} CaseResult */
+/**
+ * 单条测试用例运行结果。
+ * @typedef {{ name: string, ok: boolean, detail?: string }} CaseResult
+ */
 
 /**
  * 包根目录绝对路径。
@@ -17,14 +20,16 @@ export const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
  * @returns {Console} 写入 null sink 的 Console。
  */
 export function createNullConsole() {
-	const sink = new Writable({ /**
-	 * 忽略写入并立即回调完成。
-	 * @param {Buffer | string} _chunk - 被丢弃的数据块。
-	 * @param {string} _encoding - 编码名。
-	 * @param {(error?: Error | null) => void} callback - 写入完成回调。
-	 * @returns {void}
-	 */
-		write(_chunk, _encoding, callback) { callback() } })
+	const sink = new Writable({
+		/**
+		 * 忽略写入并立即回调完成。
+		 * @param {Buffer | string} _chunk - 被丢弃的数据块。
+		 * @param {string} _encoding - 编码名。
+		 * @param {(error?: Error | null) => void} callback - 写入完成回调。
+		 * @returns {void}
+		 */
+		write(_chunk, _encoding, callback) { callback() },
+	})
 	return new Console({ stdout: sink, stderr: sink })
 }
 

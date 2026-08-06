@@ -29,6 +29,7 @@ import colorName from 'color-name'
  */
 
 /**
+ * 将 CSS 命名色三元组转为 RGB。
  * @param {[number, number, number]} triple - `color-name` 的 RGB 三元组。
  * @returns {Rgb} 与三元组通道对应的 `{ r, g, b }` 对象。
  */
@@ -37,6 +38,7 @@ function namedTripleToRgb(triple) {
 }
 
 /**
+ * 将 0xRRGGBB 整数转为 RGB。
  * @param {number} n - 0xRRGGBB
  * @returns {Rgb} 拆分的 R/G/B 通道。
  */
@@ -45,6 +47,7 @@ function hexIntToRgb(n) {
 }
 
 /**
+ * 将通道值钳制到 0–255。
  * @param {number} x - 通道值
  * @returns {number} 钳制到 0–255 的整数。
  */
@@ -53,6 +56,7 @@ function clampByte(x) {
 }
 
 /**
+ * 解析 RGB 分量串。
  * @param {string} raw - 单段数值或百分比
  * @param {number} i - 通道索引 0–2
  * @returns {number} 单通道字节或 NaN。
@@ -73,6 +77,7 @@ function parseRgbComponent(raw, i) {
 }
 
 /**
+ * 解析 rgb/rgba 括号内分量。
  * @param {string} inner - 括号内串（逗号或空白分隔）
  * @returns {Rgb | null} 解析成功返回 RGB，否则 null。
  */
@@ -89,6 +94,7 @@ function parseRgbFunctionInner(inner) {
 }
 
 /**
+ * 解析 CSS 颜色串为 RGB。
  * @param {string} value - 颜色串
  * @returns {Rgb | null} 可映射的前景色 RGB；无法解析时为 null。
  */
@@ -187,6 +193,7 @@ function hslToRgb(h, s, l) {
 }
 
 /**
+ * 判断 font-weight 是否粗体。
  * @param {string} val - `font-weight` 声明值
  * @returns {boolean} 视为粗体映射时为 true。
  */
@@ -200,6 +207,7 @@ function parseFontWeightBold(val) {
 }
 
 /**
+ * 判断 font-style 是否斜体。
  * @param {string} val - `font-style` 声明值
  * @returns {boolean} italic/oblique 时为 true。
  */
@@ -209,6 +217,7 @@ function parseFontStyleItalic(val) {
 }
 
 /**
+ * 解析 text-decoration 关键词。
  * @param {string} val - `text-decoration` / `text-decoration-line`
  * @returns {{ underline: boolean; lineThrough: boolean }} 下划线与删除线开关。
  */
@@ -223,6 +232,7 @@ function parseTextDecorationKeywords(val) {
 }
 
 /**
+ * 解析 alpha 分量。
  * @param {string} raw - alpha 分量
  * @returns {number | null} 归一化到 [0,1]；不可解析时为 null。
  */
@@ -344,6 +354,7 @@ function cssColorValueToRgbAndDimHint(val) {
 }
 
 /**
+ * 解析内联 CSS 为 ANSI 标志位。
  * @param {string} css - `font-size:…; color: red` 等
  * @returns {CssAnsiDeclFlags} 解析得到的着色与字形标志。
  */
@@ -404,6 +415,7 @@ export function parseCssDecls(css) {
 }
 
 /**
+ * 将标志位转为 ANSI SGR 前缀。
  * @param {CssAnsiDeclFlags} flags - {@link parseCssDecls} 产物。
  * @returns {string} 如 `\x1b[2;1;3;4;38;2;255;0;0m`，无可映射项时 `''`。
  */
@@ -421,6 +433,7 @@ export function flagsToSgrPrefix(flags) {
 }
 
 /**
+ * 将 CSS 样式串转为 ANSI 前缀。
  * @param {string} css - `font-size:…; color: red` 等
  * @returns {string} 如 `\x1b[2;1;3;4;38;2;255;0;0m`，无可映射项时 `''`。
  */

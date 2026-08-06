@@ -37,7 +37,7 @@ export {
 	DEFAULT_SNAPSHOT_DEPTH,
 } from '../core/snapshot/serialize.mjs'
 /**
- *
+ * 快照惰性展开：`expandSnapshotRef`、`createExpansionScope`、`getExpansionScope`。
  */
 export {
 	expandSnapshotRef,

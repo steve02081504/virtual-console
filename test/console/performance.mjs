@@ -123,6 +123,7 @@ async function testNonCapturingStdoutWritePerformanceCeiling() {
 }
 
 /**
+ * 运行性能测试套件。
  * @returns {Promise<void>}
  */
 export async function runPerformanceTests() {

@@ -12,6 +12,7 @@ import { FullProxy } from 'full-proxy'
 const globalConsoleAdditionalProperties = {}
 
 /**
+ * 全局 `console` Proxy 构造选项。
  * @typedef {object} CreateGlobalConsoleProxyOptions
  * @property {() => object} getActiveConsole - 解析当前活动控制台实例。
  * @property {object} originalConsole - 原生全局 `console` 快照。
@@ -25,6 +26,7 @@ const globalConsoleAdditionalProperties = {}
 export function createGlobalConsoleProxy({ getActiveConsole, originalConsole }) {
 	return new FullProxy(() => Object.assign({}, originalConsole, globalConsoleAdditionalProperties, getActiveConsole()), {
 		/**
+		 * 全局 `console` Proxy 的 `get` 陷阱。
 		 * @param {object} target - Proxy 目标（此处会被替换为活动控制台）。
 		 * @param {string | symbol} property - 读取的属性键。
 		 * @param {object} receiver - 接收者。
@@ -39,6 +41,7 @@ export function createGlobalConsoleProxy({ getActiveConsole, originalConsole }) 
 			return Reflect.get(originalConsole, property, receiver)
 		},
 		/**
+		 * 全局 `console` Proxy 的 `set` 陷阱。
 		 * @param {object} target - Proxy 目标。
 		 * @param {string | symbol} property - 写入的属性键。
 		 * @param {any} value - 新值。
@@ -102,11 +105,13 @@ export function createConsoleRouting(initial, getDefaultConsole) {
 				/** @returns {T} 当前活动控制台实例。 */
 				getActiveConsole: () => routing.getActiveConsole() ?? getDefaultConsole(),
 				/**
+				 * 绑定新的活动控制台。
 				 * @param {T} value - 新的活动控制台。
 				 * @returns {void}
 				 */
 				setActiveConsole: (value) => routing.setActiveConsole(value),
 				/**
+				 * 在指定控制台上下文中执行回调。
 				 * @param {T} value - 本次上下文使用的控制台。
 				 * @param {() => any} callback - 在该上下文中执行的回调。
 				 * @returns {any} `callback` 的返回值。

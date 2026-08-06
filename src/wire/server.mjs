@@ -6,6 +6,7 @@ import { expandSnapshotRef } from '../core/snapshot/expansion.mjs'
 import { logWirePayloadTypes, WS_OPEN } from './protocol.mjs'
 
 /**
+ * 向所有已连接客户端广播 JSON 消息。
  * @param {Set<{ readyState: number, send: (data: string) => void }>} clients - 当前客户端集合。
  * @param {string} text - 已 `JSON.stringify` 的帧正文。
  * @returns {void}
@@ -108,6 +109,7 @@ export function createLogWireWebSocketHandler(virtualConsole, wireOptions = {}) 
 		void Promise.resolve(maybePromise).catch(() => { })
 	}
 	/**
+	 * WebSocket 连接处理器：注册客户端、下发快照并处理控制消息。
 	 * @param {{ readyState: number, send: (data: string) => void, on: (ev: string, fn: (...args: unknown[]) => void) => void, close?: (code?: number, reason?: string) => void }} ws - WebSocket 兼容连接。
 	 * @param {unknown} [req] - 升级请求（若有）。
 	 */

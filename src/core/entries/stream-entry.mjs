@@ -8,6 +8,7 @@ import { LogEntry } from './log-entry.mjs'
  */
 export class StreamLogEntry extends LogEntry {
 	/**
+	 * 裁掉运行时内部帧后的缓存栈。
 	 * @type {import('../../shared.d.mts').StackFrame[] | undefined}
 	 */
 	#trimmedStack
@@ -29,6 +30,7 @@ export class StreamLogEntry extends LogEntry {
 	}
 
 	/**
+	 * 调用栈（可惰性解析或裁剪）。
 	 * @returns {import('../../shared.d.mts').StackFrame[]} 裁掉运行时内部帧后的栈。
 	 */
 	get stack() {
@@ -41,7 +43,8 @@ export class StreamLogEntry extends LogEntry {
 	}
 
 	/**
-	 * @returns {import('../../shared.d.mts').LogSegment[]} 流文本片段。
+	 * 生成流文本片段序列（无尾换行）。
+	 * @returns {import('../../shared.d.mts').LogSegment[]} 单段 `{ kind: 'text', text }`。
 	 */
 	toSegments() {
 		return [{ kind: 'text', text: this.text }]

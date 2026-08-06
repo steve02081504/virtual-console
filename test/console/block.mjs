@@ -3,7 +3,7 @@ import { VirtualConsole } from '@steve02081504/virtual-console'
 import { assert, assertEqual, runTestGroup } from '../harness.mjs'
 
 /**
- *
+ * 验证 block 延迟输出。
  */
 async function testBlockDefersOutput() {
 	console.log('\n=== [block：延后输出到 unblock] ===')
@@ -37,10 +37,6 @@ async function testBlockDefersOutput() {
 /**
  * block + maxLogEntries：block 期间可不裁剪，unblock 后裁回。
  */
-
-/**
- *
- */
 async function testBlockAllowsExceedingMaxLogEntries() {
 	console.log('\n=== [block：期间可超出 maxLogEntries] ===')
 	const parent = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -65,11 +61,7 @@ async function testBlockAllowsExceedingMaxLogEntries() {
 }
 
 /**
- * block 可重入；depth 0 时多余 unblock 幂等。
- */
-
-/**
- *
+ * block 可重入；depth 归零前多余 unblock 幂等。
  */
 async function testBlockReentrantAndExtraUnblock() {
 	console.log('\n=== [block：重入与多余 unblock] ===')
@@ -103,10 +95,6 @@ async function testBlockReentrantAndExtraUnblock() {
 /**
  * block 期间 clear：本地立即清空；unblock 时按序重放 clear 标记。
  */
-
-/**
- *
- */
 async function testBlockClearReplay() {
 	console.log('\n=== [block：clear 标记按序重放] ===')
 	const parent = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -137,10 +125,6 @@ async function testBlockClearReplay() {
 /**
  * block 期间 process.stdout.write 不落到 base，unblock 后按序到达。
  */
-
-/**
- *
- */
 async function testBlockDefersStreamOutput() {
 	console.log('\n=== [block：流写入延后到 unblock] ===')
 	const parent = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -166,12 +150,7 @@ async function testBlockDefersStreamOutput() {
 }
 
 /**
- * 透传方法（table）在两种 realConsoleOutput 下都被记录。
- * Node `Console.table` 经 `this.log` 写入，故表现为 `log` 条目而非裸流。
- */
-
-/**
- *
+ * block 期间非录制子级仍冻结条目，unblock 后父级收到。
  */
 async function testBlockForcesCaptureOnNonRecordingLayer() {
 	console.log('\n=== [block：非记录层仍冻结输出] ===')
@@ -193,11 +172,7 @@ async function testBlockForcesCaptureOnNonRecordingLayer() {
 }
 
 /**
- * 惰性栈：重复读取复用同一数组；纯渲染不触发 Error.prepareStackTrace。
- */
-
-/**
- *
+ * 运行 block 相关测试套件。
  */
 export async function runBlockTests() {
 	await runTestGroup('VirtualConsole block', [

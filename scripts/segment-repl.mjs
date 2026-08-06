@@ -13,7 +13,7 @@ import { DEFAULT_SNAPSHOT_DEPTH, serializeArgSnapshot } from '#vc/core/snapshot/
 import { renderAnsi, renderHtml, renderPlain } from '#vc/format/render.mjs'
 import { buildArgsSegments } from '#vc/format/segments.mjs'
 
-/** @type {(...args: unknown[]) => void} */
+/** 绑定的原生 `console.log`，用于对照输出。 @type {(...args: unknown[]) => void} */
 const nativeLog = console.log.bind(console)
 
 /** 当前这一轮 REPL 求值里是否调用过 `log`（每轮 `eval` 开头清零）。 */

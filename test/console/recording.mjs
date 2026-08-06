@@ -3,7 +3,7 @@ import { VirtualConsole, renderAnsi, renderPlain } from '@steve02081504/virtual-
 import { assert, assertEqual, assertIncludes, runTestGroup } from '../harness.mjs'
 
 /**
- *
+ * 验证复杂对象 ANSI 日志。
  */
 async function testSupportsAnsiVcLogComplexObject() {
 	console.log('\n=== [supportsAnsi：log 含 date/number/string/bigint] ===')
@@ -20,11 +20,7 @@ async function testSupportsAnsiVcLogComplexObject() {
 }
 
 /**
- * 覆盖常见占位符、ANSI、CSS 与注入场景的渲染行为。
- */
-
-/**
- *
+ * 验证 outputEntries 捕获各级别 console 调用。
  */
 async function testOutputEntries() {
 	console.log('\n=== [outputEntries 结构化日志条目测试] ===')
@@ -50,10 +46,6 @@ async function testOutputEntries() {
 /**
  * 验证 console.dir 被捕获为结构化条目且渲染一致。
  */
-
-/**
- *
- */
 async function testConsoleDir() {
 	console.log('\n=== [console.dir 捕获测试] ===')
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -77,10 +69,6 @@ async function testConsoleDir() {
 /**
  * 验证 maxLogEntries 限制仅保留最新日志。
  */
-
-/**
- *
- */
 async function testMaxLogEntries() {
 	console.log('\n=== [maxLogEntries 限制测试] ===')
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false, maxLogEntries: 3 })
@@ -93,10 +81,6 @@ async function testMaxLogEntries() {
 
 /**
  * 验证长度裁剪前监听器仍按写入次数同步触发。
- */
-
-/**
- *
  */
 async function testMaxLogEntriesListenersFireBeforeTrim() {
 	console.log('\n=== [maxLogEntries：监听器在裁剪前逐条触发] ===')
@@ -116,10 +100,6 @@ async function testMaxLogEntriesListenersFireBeforeTrim() {
 /**
  * 验证 console 与 stream 交错写入的记录顺序。
  */
-
-/**
- *
- */
 async function testInterleavedConsoleAndStreamOrder() {
 	console.log('\n=== [console / stream 交错顺序] ===')
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -135,10 +115,6 @@ async function testInterleavedConsoleAndStreamOrder() {
 
 /**
  * 验证 clear 会重置缓存并触发 clear 监听器。
- */
-
-/**
- *
  */
 async function testClear() {
 	console.log('\n=== [clear() 重置测试] ===')
@@ -156,10 +132,6 @@ async function testClear() {
 
 /**
  * 验证全局 console 代理暴露 API 且监听绑定正确。
- */
-
-/**
- *
  */
 async function testGlobalConsoleProxy() {
 	console.log('\n=== [全局 console 代理：API 与可调用性] ===')
@@ -198,10 +170,6 @@ async function testGlobalConsoleProxy() {
 /**
  * 验证 writeAs 可以按指定级别写入日志条目。
  */
-
-/**
- *
- */
 async function testWriteAs() {
 	console.log('\n=== [writeAs 方法测试] ===')
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -214,10 +182,6 @@ async function testWriteAs() {
 
 /**
  * 验证方法名映射表不会解析到 Object.prototype 上的继承键。
- */
-
-/**
- *
  */
 async function testWriteAsInheritedMethodName() {
 	console.log('\n=== [writeAs 继承键名测试] ===')
@@ -232,10 +196,6 @@ async function testWriteAsInheritedMethodName() {
 /**
  * 验证 console.dir 请求的 depth 会同时作用于快照序列化深度。
  */
-
-/**
- *
- */
 async function testConsoleDirDeepDepth() {
 	console.log('\n=== [console.dir 请求深度测试] ===')
 	let deep = { leaf: 'bottom' }
@@ -249,10 +209,6 @@ async function testConsoleDirDeepDepth() {
 
 /**
  * 验证 process.stdout/stderr 写入会被重定向并分级。
- */
-
-/**
- *
  */
 async function testProcessStreamRedirection() {
 	console.log('\n=== [process.stdout / stderr 重定向测试] ===')
@@ -277,10 +233,6 @@ async function testProcessStreamRedirection() {
 /**
  * 验证 addLogEntryListener 对 console 与流写入均生效。
  */
-
-/**
- *
- */
 async function testAddLogEntryListenerCallbacks() {
 	console.log('\n=== [addLogEntryListener：console 与流] ===')
 	const callbackEntries = []
@@ -301,10 +253,6 @@ async function testAddLogEntryListenerCallbacks() {
 /**
  * 验证 recordOutput=false 时不会保留任何输出条目。
  */
-
-/**
- *
- */
 async function testRecordOutputFalse() {
 	console.log('\n=== [recordOutput: false 测试] ===')
 	const vc = new VirtualConsole({ recordOutput: false, realConsoleOutput: false })
@@ -315,10 +263,6 @@ async function testRecordOutputFalse() {
 
 /**
  * 验证 recordOutput=false 时监听器也不触发（与存储同门）。
- */
-
-/**
- *
  */
 async function testRecordOutputFalseSkipsListeners() {
 	console.log('\n=== [recordOutput: false 时监听器不触发] ===')
@@ -336,10 +280,6 @@ async function testRecordOutputFalseSkipsListeners() {
 /**
  * 验证 realConsoleOutput=true 时 writeAs 不会重复记录。
  */
-
-/**
- *
- */
 async function testWriteAsNoDoubleRecord() {
 	console.log('\n=== [writeAs 不双重记录测试] ===')
 	const capturedEntries = []
@@ -356,11 +296,7 @@ async function testWriteAsNoDoubleRecord() {
 }
 
 /**
- * 嵌套 VC：子级 console.log 与 process.stdout.write 都应到达父级。
- */
-
-/**
- *
+ * 运行录制相关测试套件。
  */
 export async function runRecordingTests() {
 	await runTestGroup('VirtualConsole 记录与输出', [

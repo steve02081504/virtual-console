@@ -3,6 +3,7 @@
  */
 
 /**
+ * DFS 收集快照树中的 `truncated.ref` 及最浅深度。
  * @param {unknown} snap - `ArgSnapshot` 子树。
  * @param {Map<string, number>} refsToMinDepth - ref 到最浅深度映射（相对当前快照根）。
  * @param {number} depth - 当前节点深度。
@@ -36,6 +37,7 @@ function collectTruncatedRefsInSnapshot(snap, refsToMinDepth, depth) {
 }
 
 /**
+ * 遍历各 `value` 段的快照根读写槽位。
  * @param {import('../shared.d.mts').LogSegment[]} segments - 片段数组。
  * @returns {Generator<{ get: () => unknown, set: (v: unknown) => void }>} 各快照挂载点的读写句柄。
  */
@@ -44,10 +46,12 @@ function* iterSegmentSnapshotSlots(segments) {
 		if (seg.kind === 'value')
 			yield {
 				/**
+				 * 读取当前 `value` 段快照根。
 				 * @returns {unknown} 当前 `value` 段快照根。
 				 */
 				get: () => seg.snapshot,
 				/**
+				 * 替换当前 `value` 段快照根。
 				 * @param {unknown} v - 替换后的快照根。
 				 * @returns {void}
 				 */
@@ -56,6 +60,7 @@ function* iterSegmentSnapshotSlots(segments) {
 }
 
 /**
+ * 从片段数组收集待展开 ref 及其在快照中的最浅深度。
  * @param {import('../shared.d.mts').LogSegment[]} segments - 片段数组。
  * @returns {Map<string, number>} 需要展开的 ref 及其在快照中的最浅深度（相对片段快照根）。
  */

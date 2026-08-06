@@ -8,6 +8,7 @@ import { LogEntry } from './log-entry.mjs'
 /** `console.dir` 条目：携带单个 value 段及可选 dirOptions。 */
 export class DirLogEntry extends LogEntry {
 	/**
+	 * 生成 `console.dir` 片段序列。
 	 * @returns {import('../../shared.d.mts').LogSegment[]} value + 末尾换行片段。
 	 */
 	toSegments() {

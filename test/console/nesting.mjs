@@ -254,6 +254,7 @@ async function testPassthroughMethodsRecordedViaStreams() {
 }
 
 /**
+ * 运行嵌套上下文测试套件。
  * @returns {Promise<void>}
  */
 export async function runNestingTests() {

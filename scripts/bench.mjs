@@ -17,6 +17,7 @@ import { formatSnapshot } from '../src/format/snapshot-display.mjs'
 import { createNullConsole } from '../test/helpers.mjs'
 
 /**
+ * 微基准：预热后计时并打印每次迭代耗时。
  * @param {string} label - 场景名。
  * @param {(i: number) => void} fn - 待测函数。
  * @param {number} [n=20000] - 迭代次数。

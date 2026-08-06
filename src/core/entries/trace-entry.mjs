@@ -7,6 +7,7 @@ import { LogEntry } from './log-entry.mjs'
 /** `console.trace` 条目：普通参数片段 + trace 快照片段。 */
 export class TraceLogEntry extends LogEntry {
 	/**
+	 * 生成 `console.trace` 片段序列。
 	 * @returns {import('../../shared.d.mts').LogSegment[]} 参数片段、trace 片段与末尾换行。
 	 */
 	toSegments() {

@@ -4,7 +4,7 @@ import { runPerformanceTests } from './performance.mjs'
 import { runRecordingTests } from './recording.mjs'
 
 /**
- *
+ * 运行 console 相关测试套件。
  */
 export async function runConsoleTests() {
 	await runRecordingTests()

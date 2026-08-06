@@ -25,12 +25,14 @@ import {
  */
 
 /**
+ * 纯文本渲染选项。
  * @typedef {object} RenderPlainOptions
  * @property {string} [indent='\t'] - 多行结构缩进单元。
  * @property {number} [maxDepth=Infinity] - 值快照最大展开深度（与 `dirOptions.depth` 取较小值）。
  */
 
 /**
+ * ANSI 渲染选项。
  * @typedef {object} RenderAnsiOptions
  * @property {boolean} [colorize=true] - 为 `false` 时用 {@link stripTerminalDecorations} 剥着色与 OSC8。
  * @property {boolean} [omitPrintfCss=false] - 为 `true` 时不把 `%c` 样式映射为 ANSI 真彩色。
@@ -39,6 +41,7 @@ import {
  */
 
 /**
+ * 将 trace 片段渲染为 HTML。
  * @param {import('../shared.d.mts').LogSegment} segment - `kind: 'trace'`。
  * @param {RenderHtmlOptions} renderContext - HTML 选项。
  * @returns {string} 栈块 HTML。
@@ -82,6 +85,7 @@ function renderTraceRaw(segment) {
 }
 
 /**
+ * 将片段数组渲染为 HTML。
  * @param {import('../shared.d.mts').LogSegment[]} segments - `LogEntry#toSegments()` 产物。
  * @param {RenderHtmlOptions} [htmlOptions] - trace 栈与链接样式、`css` 开关。
  * @returns {string} 拼接后的 HTML。
@@ -135,6 +139,7 @@ export function renderHtml(segments, htmlOptions = {}) {
 }
 
 /**
+ * 将片段数组渲染为纯文本。
  * @param {import('../shared.d.mts').LogSegment[]} segments - 片段数组。
  * @param {RenderPlainOptions} [plainOptions] - plain 渲染选项。
  * @returns {string} 去装饰后的纯文本，`trim` 后返回。
@@ -157,6 +162,7 @@ export function renderPlain(segments, plainOptions = {}) {
 }
 
 /**
+ * 将片段数组渲染为 ANSI 文本。
  * @param {import('../shared.d.mts').LogSegment[]} segments - 片段数组。
  * @param {RenderAnsiOptions} [ansiOptions] - 终端 ANSI 选项。
  * @returns {string} 终端 ANSI 拼接串。

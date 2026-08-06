@@ -19,7 +19,10 @@ import { VirtualStream } from './virtual-stream.mjs'
  * Node 运行时：`VirtualConsole`、`AsyncLocalStorage` 与全局 `console` 代理。
  */
 
-/** @type {AsyncLocalStorage<VirtualConsole>} */
+/**
+ * Node 异步上下文槽位。
+ * @type {AsyncLocalStorage<VirtualConsole>}
+ */
 export const consoleAsyncStorage = new AsyncLocalStorage()
 
 /**
@@ -27,14 +30,15 @@ export const consoleAsyncStorage = new AsyncLocalStorage()
  * 每实例传两个独立流：Node `Console` 会对同一 Writable 挂多个监听，共用一个会触发 MaxListeners 警告。
  * @returns {import('node:stream').Writable} 写入即完成、不落地的流。
  */
-const createDiscardStream = () => new Writable({ /**
+const createDiscardStream = () => new Writable({
+	/**
 	 * 忽略写入内容，仅调用 `callback` 表示完成。
 	 * @param {Buffer | string} _chunk - 被丢弃的数据块。
 	 * @param {string} _encoding - 编码名。
 	 * @param {(error?: Error | null) => void} callback - 写入完成回调。
 	 * @returns {void}
 	 */
-	write: (_chunk, _encoding, callback) => callback()
+	write(_chunk, _encoding, callback) { callback() },
 })
 
 const originalConsole = globalThis.console
@@ -64,6 +68,7 @@ const nodePlatform = {
 	routing,
 	emitNative,
 	/**
+	 * 构造绑定原生流的虚拟输出流。
 	 * @param {'stdout' | 'stderr'} streamName - 流名。
 	 * @param {(chunk: any, encoding: string, callback: Function) => void} onWrite - 写入回调。
 	 * @returns {VirtualStream} 绑定到对应原生流、经 `onWrite` 接入管线的虚拟流。
@@ -78,6 +83,7 @@ const nodePlatform = {
 }
 
 /**
+ * Node 运行时 VirtualConsole（混入 `Console`）。
  * @augments {Console}
  */
 export class VirtualConsole extends VirtualConsoleMixin(Console, nodePlatform) {

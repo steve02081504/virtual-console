@@ -29,6 +29,7 @@ export function isVirtualConsole(value) {
 }
 
 /**
+ * 运行时平台描述符（路由、原生输出、流工厂等）。
  * @typedef {object} VirtualConsolePlatform
  * @property {{ runWithActiveConsole: Function, setActiveConsole: Function, resolveActiveConsole: Function }} routing - 活动控制台路由。
  * @property {(entry: import('../../core/entries/log-entry.mjs').LogEntry, options: { baseConsole: object, supportsAnsi: boolean, lastFreshLineId: string | null }) => void} emitNative - 原生输出。
@@ -37,6 +38,7 @@ export function isVirtualConsole(value) {
  */
 
 /**
+ * 混入 VirtualConsole 能力的工厂函数。
  * @param {typeof Object} [Base=Object] - 基类（Node 传入 `Console`）。
  * @param {VirtualConsolePlatform} platform - 平台描述符（闭包捕获；每运行时一份）。
  * @returns {typeof Object} VirtualConsole 混合类。
@@ -103,11 +105,13 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		#lastFreshLineId = null
 
 		/**
+		 * 经 `createStream` 懒初始化的 stdout 虚拟流。
 		 * @type {object | undefined}
 		 */
 		#virtualStdout
 
 		/**
+		 * 经 `createStream` 懒初始化的 stderr 虚拟流。
 		 * @type {object | undefined}
 		 */
 		#virtualStderr
@@ -175,13 +179,15 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		}
 
 		/**
-		 * @returns {object} 透传目标控制台。
+		 * 原生或用户指定的透传目标。
+		 * @returns {object} 当前 `baseConsole` 实例。
 		 */
 		get baseConsole() {
 			return this.#baseConsole
 		}
 
 		/**
+		 * 设置 `baseConsole`。
 		 * @param {object} value - 新的透传目标。
 		 * @returns {void}
 		 */
@@ -397,6 +403,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		}
 
 		/**
+		 * 订阅新捕获的日志条目。
 		 * @param {(entry: import('../../core/entries/log-entry.mjs').LogEntry) => void} listener - 新条目回调。
 		 * @returns {void}
 		 */
@@ -405,6 +412,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		}
 
 		/**
+		 * 取消日志条目订阅。
 		 * @param {(entry: import('../../core/entries/log-entry.mjs').LogEntry) => void} listener - 待移除的回调。
 		 * @returns {void}
 		 */
@@ -413,6 +421,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		}
 
 		/**
+		 * 订阅 `clear()` 事件。
 		 * @param {() => void} listener - `clear()` 触发时的回调。
 		 * @returns {void}
 		 */
@@ -421,6 +430,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		}
 
 		/**
+		 * 取消 `clear()` 订阅。
 		 * @param {() => void} listener - 待移除的 `clear` 回调。
 		 * @returns {void}
 		 */
@@ -429,6 +439,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		}
 
 		/**
+		 * 注册可覆盖行。
 		 * @param {string} id - 可覆盖行 id。
 		 * @param {...any} args - 打印内容。
 		 * @returns {void}
@@ -438,6 +449,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		}
 
 		/**
+		 * 清空捕获条目并通知订阅者。
 		 * @returns {void}
 		 */
 		clear() {
@@ -451,6 +463,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		}
 
 		/**
+		 * 按方法名写入日志。
 		 * @param {string} method - 日志方法名。
 		 * @param {...any} args - 内容。
 		 * @returns {void}

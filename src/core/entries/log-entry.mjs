@@ -12,16 +12,19 @@ import { methodNameToLevel } from './level.mjs'
  */
 export class LogEntry {
 	/**
+	 * 惰性解析并缓存的调用栈。
 	 * @type {import('../../shared.d.mts').StackFrame[] | undefined}
 	 */
 	#parsedStack
 
 	/**
+	 * 惰性栈来源 `Error`（首次读 `stack` 后丢弃）。
 	 * @type {Error | undefined}
 	 */
 	#stackSource
 
 	/**
+	 * 解析 `stackSource` 时跳过的顶行数。
 	 * @type {number}
 	 */
 	#skipFrames = 0

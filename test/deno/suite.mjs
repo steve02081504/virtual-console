@@ -23,6 +23,7 @@ async function testAsyncEvalConsoleLogOnNode() {
 
 	const { async_eval } = await import('@steve02081504/async-eval')
 	/**
+	 * 构造仅录制、不转发到原生的 VirtualConsole 工厂。
 	 * @returns {VirtualConsole} 静默 VirtualConsole。
 	 */
 	const quietConsole = () => new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -70,6 +71,7 @@ async function testAsyncEvalConsoleLogOnDeno() {
 }
 
 /**
+ * 运行 Deno 子进程测试套件。
  * @returns {Promise<void>}
  */
 export async function runDenoTests() {

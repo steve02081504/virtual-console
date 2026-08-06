@@ -21,7 +21,10 @@ const OSC8_LINK_START = '\x1b]8;;'
 const OSC8_LINK_SEP = '\x07'
 const OSC8_LINK_END = '\x1b]8;;\x07'
 
-/** @type {Record<string, string>} */
+/**
+ * HTML 特殊字符转义表。
+ * @type {Record<string, string>}
+ */
 const HTML_ESCAPES = {
 	'&': '&amp;',
 	'"': '&quot;',

@@ -85,6 +85,7 @@ export function attachLogWire(ws, {
 	}
 
 	/**
+	 * 将原始载荷包装为 {@link WireLogEntry}。
 	 * @param {unknown} raw - 服务端下发的单条 JSON 载荷。
 	 * @returns {ReturnType<typeof createWireLogEntryFromJson>} 绑定当前连接的异步条目。
 	 */
@@ -96,6 +97,7 @@ export function attachLogWire(ws, {
 	}
 
 	/**
+	 * 处理快照批量下行消息。
 	 * @param {unknown[]} entries - 快照中的序列化条目。
 	 * @returns {Promise<void>}
 	 */
@@ -104,6 +106,7 @@ export function attachLogWire(ws, {
 	}
 
 	/**
+	 * 处理单条追加上行消息。
 	 * @param {unknown} entry - `vc_log_append` 单条序列化载荷。
 	 * @returns {Promise<void>}
 	 */
