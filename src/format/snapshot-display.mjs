@@ -301,6 +301,17 @@ function formatDateSnapshotValue(ms) {
 	}
 }
 
+/**
+ * 对象条目键：合法标识符原样输出，否则包成单引号字面量（转义 `'` / 换行）。
+ * @param {string} key - 原始键。
+ * @returns {string} 展示用键文本。
+ */
+function formatEntryKey(key) {
+	const keyStr = String(key)
+	if (/^[$A-Z_a-z][\w$]*$/.test(keyStr)) return keyStr
+	return `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
+}
+
 /** @type {Readonly<{ reset: string; green: string; yellow: string; cyan: string; grey: string; magenta: string; red: string; dim: string }>} */
 const ANSI_COLORS = {
 	reset: '\x1b[0m',
@@ -352,24 +363,14 @@ function formatSnapshotInner(snap, options) {
 			if (objectDepth >= depthLimit) return ''
 			const compactLines = entries.map(entry => {
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-				let keyStr = key
-				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
-					keyStr = `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
-				return `${keyStr}: ${formatNode(val, objectDepth + 1)}`
+				return `${formatEntryKey(key)}: ${formatNode(val, objectDepth + 1)}`
 			})
 			const compactInner = compactLines.join(', ')
 			if (!compactInner.includes('\n') && compactInner.length <= 120)
 				return ` { ${compactInner} }`
 			const spaces = indentUnit.repeat(objectDepth + 1)
 			const nextIndent = indentUnit.repeat(objectDepth)
-			const lines = entries.map(entry => {
-				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-				let keyStr = key
-				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
-					keyStr = `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
-				return `${spaces}${keyStr}: ${formatNode(val, objectDepth + 1)}`
-			})
-			return ` {\n${lines.join(',\n')}\n${nextIndent}}`
+			return ` {\n${compactLines.map(line => `${spaces}${line}`).join(',\n')}\n${nextIndent}}`
 		}
 
 		if (snapshotNode == null || typeof snapshotNode !== 'object')
@@ -461,7 +462,7 @@ function formatSnapshotInner(snap, options) {
 			const extra = Array.isArray(node.entries) && node.entries.length
 				? '\n' + node.entries.map(entry => {
 					const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-					return `  ${key}: ${formatNode(val, objectDepth)}`
+					return `  ${formatEntryKey(key)}: ${formatNode(val, objectDepth)}`
 				}).join('\n')
 				: ''
 			const frames = /** @type {import('../shared.d.mts').StackFrame[]} */ node.stack
@@ -508,42 +509,24 @@ function formatSnapshotInner(snap, options) {
 			return `[\n${inner}\n${openIndent}]`
 		}
 
-		// 泛型对象：kind + entries
+		// 泛型对象：kind + entries（子节点只渲染一次，多行由 compact 派生）
 		if (Array.isArray(node.entries)) {
 			if (objectDepth >= depthLimit)
 				return `${colors.cyan}[${String(node.kind ?? 'Object')}]${colors.reset}`
 			const entries = /** @type {Array<{ key: string; value: unknown }>} */ node.entries
-			if (!entries.length) {
-				const kind = String(node.kind ?? 'Object')
-				return `${kind === 'object' || kind === 'Object' ? '' : kind + ' '}{}`
-			}
-			const isArrayLike = node.kind === 'array'
-			const open = isArrayLike ? '[' : '{'
-			const close = isArrayLike ? ']' : '}'
-			const spaces = indentUnit.repeat(objectDepth + 1)
-			const nextIndent = indentUnit.repeat(objectDepth)
-			const lines = entries.map(entry => {
-				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-				if (isArrayLike) return `${spaces}${formatNode(val, objectDepth + 1)}`
-				let keyStr = key
-				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
-					keyStr = `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
-				return `${spaces}${keyStr}: ${formatNode(val, objectDepth + 1)}`
-			})
+			const kind = String(node.kind ?? 'Object')
+			const prefix = kind === 'object' || kind === 'Object' ? '' : `${kind} `
+			if (!entries.length) return `${prefix}{}`
 			const compactLines = entries.map(entry => {
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-				if (isArrayLike) return formatNode(val, objectDepth + 1)
-				let keyStr = key
-				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
-					keyStr = `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
-				return `${keyStr}: ${formatNode(val, objectDepth + 1)}`
+				return `${formatEntryKey(key)}: ${formatNode(val, objectDepth + 1)}`
 			})
 			const compactInner = compactLines.join(', ')
-			const compactPrefix = node.kind && node.kind !== 'object' && node.kind !== 'Object' ? `${node.kind} ` : ''
 			if (!compactInner.includes('\n') && compactInner.length <= 80)
-				return `${compactPrefix}${open} ${compactInner} ${close}`
-			const prefix = node.kind && node.kind !== 'object' && node.kind !== 'Object' ? `${node.kind} ` : ''
-			return `${prefix}${open}\n${lines.join(',\n')}\n${nextIndent}${close}`
+				return `${prefix}{ ${compactInner} }`
+			const spaces = indentUnit.repeat(objectDepth + 1)
+			const nextIndent = indentUnit.repeat(objectDepth)
+			return `${prefix}{\n${compactLines.map(line => `${spaces}${line}`).join(',\n')}\n${nextIndent}}`
 		}
 
 		return JSON.stringify(node)
