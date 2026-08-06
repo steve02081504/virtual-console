@@ -261,13 +261,13 @@ VirtualConsole is built for hot paths: passthrough layers stay cheaper than nati
 
 **Node.js v26 · `console.log('perf', n)` · 20,000 ops · null sink** ([`npm run bench`](scripts/bench.mjs))
 
-| Scenario | µs/op | vs native `log` | Throughput |
-| -------- | ----: | --------------: | ---------: |
-| Native `console.log` | **3.9** | 1× | ~256k/s |
-| VC `log` · `recordOutput: false` | **0.2** | **~20× faster** | ~5M/s |
-| VC `writeAs` · `recordOutput: false` | **0.3** | **~13× faster** | ~3M/s |
-| VC `log` · `recordOutput: true` | **20** | ~5× slower | ~50k/s |
-| VC `writeAs` · `recordOutput: true` | **22** | ~6× slower | ~45k/s |
+| Scenario                             |   µs/op | vs native `log` | Throughput |
+| ------------------------------------ | ------: | --------------: | ---------: |
+| Native `console.log`                 | **3.9** |              1× |    ~256k/s |
+| VC `log` · `recordOutput: false`     | **0.2** | **~20× faster** |      ~5M/s |
+| VC `writeAs` · `recordOutput: false` | **0.3** | **~13× faster** |      ~3M/s |
+| VC `log` · `recordOutput: true`      |  **20** |      ~5× slower |     ~50k/s |
+| VC `writeAs` · `recordOutput: true`  |  **22** |      ~6× slower |     ~45k/s |
 
 Passthrough (`recordOutput: false`, no `realConsoleOutput`) is a near-no-op dispatch — no formatting, no I/O, no entry allocation. Use it on parent layers that only route context while a child records.
 
@@ -275,12 +275,12 @@ Passthrough (`recordOutput: false`, no `realConsoleOutput`) is a near-no-op disp
 
 **Lazy rendering** — pay for `toString` / `toHtml` only when you read them (nested object fixture):
 
-| Render | µs/op |
-| ------ | ----: |
-| `toString()` (plain string) | 1.7 |
-| `toSegments()` (nested object) | 5.6 |
-| `toString()` (nested object) | 12 |
-| `toHtml()` (nested object) | 36 |
+| Render                         | µs/op |
+| ------------------------------ | ----: |
+| `toString()` (plain string)    |   1.7 |
+| `toSegments()` (nested object) |   5.6 |
+| `toString()` (nested object)   |    12 |
+| `toHtml()` (nested object)     |    36 |
 
 Snapshot formatting scales **linearly** with object depth (depth‑8 / depth‑1 ≈ **4×**, not exponential ~128×+).
 
