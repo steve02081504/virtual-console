@@ -8,8 +8,7 @@ import {
 } from './ansi.mjs'
 import { cssStyleStringToAnsiPrefix } from './css-to-ansi.mjs'
 import {
-	formatSnapshotAnsi,
-	formatSnapshotPlain,
+	formatSnapshot,
 	resolveValueRenderOptions
 } from './snapshot-display.mjs'
 
@@ -64,18 +63,13 @@ function traceStackHtml(segment, renderContext) {
 /**
  * 统一计算 `value` 片段的 plain 或 ANSI 文本。
  * @param {import('../shared.d.mts').LogSegment} segment - `kind: 'value'` 片段。
- * @param {{ indent: string, maxDepth: number, defaultColorize?: boolean }} options - 统一渲染参数。
- * @param {'ansi' | 'plain'} mode - 目标格式。
+ * @param {{ indent: string, maxDepth: number, colorize?: boolean }} options - 统一渲染参数。
  * @returns {string} 格式化结果。
  */
-function renderValueSegment(segment, options, mode) {
-	const resolveColorize = mode === 'ansi' ? options.defaultColorize : true
-	const opts = resolveValueRenderOptions(segment, resolveColorize)
+function renderValueSegment(segment, options) {
+	const opts = resolveValueRenderOptions(segment, options.colorize !== false)
 	const depth = Math.min(opts.depth, options.maxDepth)
-	const base = { depth, indent: options.indent }
-	if (mode === 'ansi')
-		return formatSnapshotAnsi(segment.snapshot, { ...base, colorize: opts.colorize })
-	return formatSnapshotPlain(segment.snapshot, base)
+	return formatSnapshot(segment.snapshot, { depth, indent: options.indent, colorize: opts.colorize })
 }
 
 /**
@@ -128,7 +122,7 @@ export function renderHtml(segments, htmlOptions = {}) {
 			parts.push(terminalChunkToHtml(segment.text))
 
 		else if (segment.kind === 'value') {
-			const ansiInner = renderValueSegment(segment, { indent, maxDepth, defaultColorize: supportsAnsi }, 'ansi')
+			const ansiInner = renderValueSegment(segment, { indent, maxDepth, colorize: supportsAnsi })
 			parts.push(terminalChunkToHtml(ansiInner))
 		}
 
@@ -155,7 +149,7 @@ export function renderPlain(segments, plainOptions = {}) {
 		if (segment.kind === 'text')
 			parts.push(stripTerminalDecorations(segment.text))
 		else if (segment.kind === 'value')
-			parts.push(renderValueSegment(segment, { indent, maxDepth }, 'plain'))
+			parts.push(renderValueSegment(segment, { indent, maxDepth, colorize: false }))
 		else if (segment.kind === 'trace')
 			parts.push(renderTraceRaw(segment))
 	}
@@ -169,7 +163,7 @@ export function renderPlain(segments, plainOptions = {}) {
  */
 export function renderAnsi(segments, ansiOptions = {}) {
 	if (!segments?.length) return ''
-	const baseColorize = ansiOptions.colorize !== false
+	const colorize = ansiOptions.colorize ?? true
 	const omitPrintfCss = ansiOptions.omitPrintfCss === true
 	const indent = ansiOptions.indent ?? '\t'
 	const maxDepth = ansiOptions.maxDepth ?? Infinity
@@ -181,14 +175,14 @@ export function renderAnsi(segments, ansiOptions = {}) {
 	 * @returns {string} 带样式的 ANSI 片段。
 	 */
 	const wrapPrintfStyle = inner => {
-		if (!baseColorize) return stripTerminalDecorations(inner)
+		if (!colorize) return stripTerminalDecorations(inner)
 		if (!printfStylePrefix) return inner
 		return `${printfStylePrefix}${inner}\x1b[0m`
 	}
 	const parts = []
 	for (const segment of segments) {
 		if (segment.kind === 'css') {
-			printfStylePrefix = baseColorize && !omitPrintfCss
+			printfStylePrefix = colorize && !omitPrintfCss
 				? cssStyleStringToAnsiPrefix(segment.css)
 				: ''
 			continue
@@ -198,11 +192,11 @@ export function renderAnsi(segments, ansiOptions = {}) {
 			parts.push(wrapPrintfStyle(t))
 		}
 		else if (segment.kind === 'value') {
-			const inner = renderValueSegment(segment, { indent, maxDepth, defaultColorize: baseColorize }, 'ansi')
+			const inner = renderValueSegment(segment, { indent, maxDepth, colorize })
 			parts.push(wrapPrintfStyle(inner))
 		}
 		else if (segment.kind === 'trace') {
-			const inner = baseColorize
+			const inner = colorize
 				? segment.stack.map(traceStackFrameAnsi).join('\n')
 				: renderTraceRaw(segment)
 			parts.push(wrapPrintfStyle(inner))

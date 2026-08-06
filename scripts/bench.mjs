@@ -12,7 +12,7 @@ import {
 	newLogEntry,
 	serializeArgSnapshot,
 } from '@steve02081504/virtual-console'
-import { formatSnapshotPlain } from '../src/format/snapshot-display.mjs'
+import { formatSnapshot } from '../src/format/snapshot-display.mjs'
 
 /**
  * @param {string} label - 场景名。
@@ -100,7 +100,7 @@ console.log('\n=== snapshot format depth scan (must stay ~linear) ===')
 		let o = { leaf: 1, s: 'x' }
 		for (let i = 0; i < depth; i++) o = { k: o, n: i, t: 'txt' }
 		const snap = serializeArgSnapshot(o, { maxDepth: 20 })
-		const us = bench(`depth ${depth}`, () => formatSnapshotPlain(snap, { depth: Infinity }), 400, 40)
+		const us = bench(`depth ${depth}`, () => formatSnapshot(snap, { depth: Infinity, colorize: false }), 400, 40)
 		times.push(us)
 	}
 	const ratio = times[7] / times[0]

@@ -15,7 +15,7 @@ import {
 
 import { pathToFileURL } from '../../../src/core/stack.mjs'
 import { parseCssDecls } from '../../../src/format/css-to-ansi.mjs'
-import { formatSnapshotPlain } from '../../../src/format/snapshot-display.mjs'
+import { formatSnapshot } from '../../../src/format/snapshot-display.mjs'
 import { applyExpandedSnapshotsInSegments } from '../../../src/wire/expand-wire-segments.mjs'
 import { assert, assertEqual, assertIncludes, runTestGroup } from '../../harness.mjs'
 
@@ -445,14 +445,14 @@ function testSnapshotFormatComplexityCeiling() {
 	for (let i = 0; i < 16; i++) o = { k: o, n: i, t: 'txt' }
 	const snap = serializeArgSnapshot(o, { maxDepth: 20 })
 	// 预热
-	formatSnapshotPlain(snap, { depth: Infinity })
+	formatSnapshot(snap, { depth: Infinity, colorize: false })
 	const start = performance.now()
-	for (let i = 0; i < 20; i++) formatSnapshotPlain(snap, { depth: Infinity })
+	for (let i = 0; i < 20; i++) formatSnapshot(snap, { depth: Infinity, colorize: false })
 	const ms = performance.now() - start
 	const perOpMs = ms / 20
 	console.log(`  depth≈16 ×20：${ms.toFixed(2)} ms（${(perOpMs * 1000).toFixed(1)} µs/op）`)
 	// 线性路径约几十 µs；留约 3 个数量级余量（50ms），指数退化会远超。
-	assert(perOpMs < 50, `单次 formatSnapshotPlain(depth≈16) 不得超过 50ms（实际 ${perOpMs.toFixed(2)} ms）`)
+	assert(perOpMs < 50, `单次 formatSnapshot(depth≈16) 不得超过 50ms（实际 ${perOpMs.toFixed(2)} ms）`)
 }
 
 /**

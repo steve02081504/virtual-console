@@ -5,40 +5,20 @@
 import { DEFAULT_SNAPSHOT_DEPTH } from '../core/snapshot/serialize.mjs'
 import { parseStackTraceLine, stackFrameToOsc8Href } from '../core/stack.mjs'
 
-import { ansiHyperlink, stripTerminalDecorations } from './ansi.mjs'
+import { ansiHyperlink } from './ansi.mjs'
 
 /**
  * @typedef {object} FormatSnapshotOptions
  * @property {number} [depth=Infinity] - 对象展开最大深度（超过则输出 `[Object]` 风格占位）。
  * @property {string} [indent='\t'] - 多行结构的缩进单元。
- * @property {boolean} [colorize=true] - ANSI 路径是否着色；plain 路径忽略。
+ * @property {boolean} [colorize=true] - 为 `true` 时输出 ANSI 着色；为 `false` 时输出纯文本。
  */
-
-/**
- * @param {import('../shared.d.mts').ArgSnapshot} snap - 任意快照子树。
- * @param {FormatSnapshotOptions} [options] - 格式选项。
- * @returns {string} 无 ANSI、可搜索的纯文本。
- */
-export function formatSnapshotPlain(snap, options = {}) {
-	return formatSnapshotInner(snap, { ...options, colorize: false })
-}
-
-/**
- * @param {import('../shared.d.mts').ArgSnapshot} snap - 任意快照子树。
- * @param {FormatSnapshotOptions} [options] - 格式选项。
- * @returns {string} 终端 ANSI 文本；`colorize: false` 时剥离 CSI，等价纯文本。
- */
-export function formatSnapshotAnsi(snap, options = {}) {
-	const raw = formatSnapshotInner(snap, { depth: Infinity, colorize: true, ...options })
-	if (options.colorize === false) return stripTerminalDecorations(raw)
-	return raw
-}
 
 /**
  * 合并 `console.dir` 浅层选项与渲染默认值。
  * @param {import('../shared.d.mts').DirOptionsPayload | undefined} dirOpts - 片段上的 `dirOptions`。
  * @param {{ depth: number; colorize: boolean }} fallback - 默认值。
- * @returns {{ depth: number; colorize: boolean }} `formatSnapshot*` 使用的深度与是否着色。
+ * @returns {{ depth: number; colorize: boolean }} `formatSnapshot` 使用的深度与是否着色。
  */
 export function mergeDirOptionsForRender(dirOpts, fallback = { depth: DEFAULT_SNAPSHOT_DEPTH, colorize: true }) {
 	if (!dirOpts) return fallback
@@ -51,7 +31,7 @@ export function mergeDirOptionsForRender(dirOpts, fallback = { depth: DEFAULT_SN
 /**
  * @param {{ dirOptions?: import('../shared.d.mts').DirOptionsPayload }} segment - `kind: 'value'` 片段。
  * @param {boolean} supportsAnsi - 条目级 ANSI 开关。
- * @returns {{ depth: number; colorize: boolean }} `formatSnapshot*` 使用的深度与是否着色。
+ * @returns {{ depth: number; colorize: boolean }} `formatSnapshot` 使用的深度与是否着色。
  */
 export function resolveValueRenderOptions(segment, supportsAnsi) {
 	return mergeDirOptionsForRender(segment.dirOptions, {
@@ -338,10 +318,10 @@ const PLAIN_COLORS = {
 
 /**
  * @param {unknown} snap - 任意快照。
- * @param {FormatSnapshotOptions} options - 格式选项（含 `depth`、`colorize`）。
- * @returns {string} 单棵快照树对应的展示文本。
+ * @param {FormatSnapshotOptions} [options] - 格式选项（含 `depth`、`colorize`）。
+ * @returns {string} 单棵快照树对应的展示文本（`colorize: false` 时为纯文本）。
  */
-function formatSnapshotInner(snap, options) {
+export function formatSnapshot(snap, options = {}) {
 	const colorize = options.colorize ?? true
 	const depthLimit = options.depth ?? Infinity
 	const indentUnit = options.indent ?? '\t'
