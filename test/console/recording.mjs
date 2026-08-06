@@ -185,6 +185,35 @@ async function testWriteAs() {
 }
 
 /**
+ * 验证方法名映射表不会解析到 Object.prototype 上的继承键。
+ */
+
+async function testWriteAsInheritedMethodName() {
+	console.log('\n=== [writeAs 继承键名测试] ===')
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	vc.writeAs('toString', 'inherited name')
+	assertEqual(vc.outputEntries.length, 1, 'writeAs("toString") 记录一条日志而非抛错')
+	assertEqual(vc.outputEntries[0].method, 'toString', '方法名原样保留')
+	assertEqual(vc.outputEntries[0].level, 'toString', '级别不得取自 Object.prototype')
+	assertIncludes(vc.outputEntries[0].toString(), 'inherited name', '内容正确')
+}
+
+/**
+ * 验证 console.dir 请求的 depth 会同时作用于快照序列化深度。
+ */
+
+async function testConsoleDirDeepDepth() {
+	console.log('\n=== [console.dir 请求深度测试] ===')
+	let deep = { leaf: 'bottom' }
+	for (let i = 0; i < 7; i++) deep = { [`k${i}`]: deep }
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	vc.dir(deep, { depth: 9 })
+	vc.dir(deep)
+	assertIncludes(vc.outputEntries[0].toPlainText(), 'bottom', 'depth=9 时深层内容不被截断')
+	assert(!vc.outputEntries[1].toPlainText().includes('bottom'), '默认深度仍在 DEFAULT_SNAPSHOT_DEPTH 处截断')
+}
+
+/**
  * 验证 process.stdout/stderr 写入会被重定向并分级。
  */
 
@@ -283,6 +312,6 @@ async function testWriteAsNoDoubleRecord() {
 
 export async function runRecordingTests() {
 	await runTestGroup('VirtualConsole 记录与输出', [
-		testSupportsAnsiVcLogComplexObject, testOutputEntries, testConsoleDir, testMaxLogEntries, testMaxLogEntriesListenersFireBeforeTrim, testInterleavedConsoleAndStreamOrder, testClear, testGlobalConsoleProxy, testWriteAs, testProcessStreamRedirection, testAddLogEntryListenerCallbacks, testRecordOutputFalse, testRecordOutputFalseSkipsListeners, testWriteAsNoDoubleRecord,
+		testSupportsAnsiVcLogComplexObject, testOutputEntries, testConsoleDir, testConsoleDirDeepDepth, testMaxLogEntries, testMaxLogEntriesListenersFireBeforeTrim, testInterleavedConsoleAndStreamOrder, testClear, testGlobalConsoleProxy, testWriteAs, testWriteAsInheritedMethodName, testProcessStreamRedirection, testAddLogEntryListenerCallbacks, testRecordOutputFalse, testRecordOutputFalseSkipsListeners, testWriteAsNoDoubleRecord,
 	])
 }

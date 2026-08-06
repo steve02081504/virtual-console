@@ -91,6 +91,7 @@ function quoteSingleJsString(raw) {
 		else if (ch === '\f') out += '\\f'
 		else if (ch === '\v') out += '\\v'
 		else if (ch === '\0') out += '\\0'
+		else if (ch < ' ' || ch === '\x7f') out += `\\x${ch.codePointAt(0).toString(16).toUpperCase().padStart(2, '0')}`
 		else out += ch
 	}
 	return `${quote}${out}${quote}`
@@ -281,14 +282,14 @@ function formatDateSnapshotValue(ms) {
 }
 
 /**
- * 对象条目键：合法标识符原样输出，否则包成单引号字面量（转义 `'` / 换行）。
+ * 对象条目键：合法标识符原样输出，否则走与字符串值一致的字面量转义。
  * @param {string} key - 原始键。
  * @returns {string} 展示用键文本。
  */
 function formatEntryKey(key) {
 	const keyStr = String(key)
 	if (/^[$A-Z_a-z][\w$]*$/.test(keyStr)) return keyStr
-	return `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
+	return quoteSingleJsString(keyStr)
 }
 
 /** @type {Readonly<{ reset: string; green: string; yellow: string; cyan: string; grey: string; magenta: string; red: string; dim: string }>} */

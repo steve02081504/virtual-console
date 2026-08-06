@@ -473,6 +473,45 @@ async function testRendering() {
 }
 
 /**
+ * 装箱原语展示须与 util.inspect 一致（`new Boolean(false)` 不得被拆箱成 true）。
+ */
+function testBoxedPrimitiveParity() {
+	console.log('\n=== [装箱原语快照与 util.inspect 一致] ===')
+	for (const boxed of [new Boolean(false), new Boolean(true), new Number(-0), new Number(42)])
+		assertEqual(
+			formatSnapshot(serializeArgSnapshot(boxed), { colorize: false }),
+			util.inspect(boxed),
+			`${util.inspect(boxed)} 展示一致`,
+		)
+}
+
+/**
+ * 非标识符键的转义须与 util.inspect 一致（反斜杠 / CR / TAB / 控制字符 / 引号）。
+ */
+function testEntryKeyEscapeParity() {
+	console.log('\n=== [对象键转义与 util.inspect 一致] ===')
+	const weirdKeys = { 'a\\b': 1, 'c\rd': 2, 'e\tf': 3, 'g\u0001h': 4, 'i\'j': 5 }
+	assertEqual(
+		formatSnapshot(serializeArgSnapshot(weirdKeys), { colorize: false }),
+		util.inspect(weirdKeys),
+		'非标识符键与控制字符转义一致',
+	)
+}
+
+/**
+ * 自我转发的 Proxy 外壳须走环检测，不得无限递归。
+ */
+function testSelfForwardingProxyTerminates() {
+	console.log('\n=== [自我转发 Proxy 环检测] ===')
+	const target = {}
+	const proxy = new Proxy(target, {})
+	target.x = proxy
+	const snap = serializeArgSnapshot(proxy)
+	assertEqual(snap.kind, 'Proxy', '外壳仍标记为 Proxy')
+	assertEqual(/** @type {{ target: { kind: string } }} */ (snap).target.kind, 'circular', '转发回自身时判定为环')
+}
+
+/**
  * 快照格式化复杂度护栏：深度嵌套应对线性/近线性，不得退化成指数（双重渲染子节点）。
  * 修好后 depth≈16 约数十 µs；指数退化会到秒级。
  */
@@ -518,6 +557,9 @@ export async function runSnapshotTests() {
 		testExpansionScopeReuseAcrossToSegments,
 		testPathToFileURLWindowsDriveUnescapedColon,
 		testCssHex4DigitAlphaDim,
+		testBoxedPrimitiveParity,
+		testEntryKeyEscapeParity,
+		testSelfForwardingProxyTerminates,
 		testSnapshotFormatComplexityCeiling,
 	])
 }

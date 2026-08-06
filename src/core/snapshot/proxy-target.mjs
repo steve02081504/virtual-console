@@ -21,23 +21,23 @@ await import('node:util/types').then(module => {
  * 访问器属性仍调用 getter。
  * @param {object} hostObject - 对象或 Proxy。
  * @param {string} key - 属性名。
- * @returns {unknown} 数据属性的快照值、访问器调用 getter 的结果，或回退/缺失时为 `undefined`。
+ * @returns {unknown} 数据属性的快照值、访问器调用 getter 的结果，或缺失/取值抛错时为 `undefined`。
  */
 export function getOwnPropertySnapshotValue(hostObject, key) {
-	const descriptor = Reflect.getOwnPropertyDescriptor(hostObject, key)
-	if (!descriptor)
-		try {
-			return /** @type {Record<string, unknown>} */ hostObject[key]
-		}
-		catch {
-			return undefined
-		}
-
-	if ('value' in descriptor)
-		return descriptor.value
-	if (typeof descriptor.get === 'function')
-		return descriptor.get.call(hostObject)
-	return undefined
+	// 取值全程兜底：陷阱与 getter 都是用户代码，打日志不该被它们的异常带走。
+	try {
+		const descriptor = Reflect.getOwnPropertyDescriptor(hostObject, key)
+		if (!descriptor)
+			return /** @type {Record<string, unknown>} */ (hostObject)[key]
+		if ('value' in descriptor)
+			return descriptor.value
+		if (typeof descriptor.get === 'function')
+			return descriptor.get.call(hostObject)
+		return undefined
+	}
+	catch {
+		return undefined
+	}
 }
 
 /**
@@ -69,9 +69,9 @@ function tryResolveTransparentProxyTarget(proxy) {
 	for (const key of proxyKeys) {
 		const val = getOwnPropertySnapshotValue(proxy, key)
 		if (val === null || typeof val !== 'object') continue
-		if (!matchesTransparentProxyTarget(proxy, /** @type {object} */ val)) continue
+		if (!matchesTransparentProxyTarget(proxy, /** @type {object} */ (val))) continue
 		if (found !== undefined && found !== val) return undefined
-		found = /** @type {object} */ val
+		found = /** @type {object} */ (val)
 	}
 	return found
 }
@@ -90,7 +90,7 @@ function tryUnwrapForwardingProxy(proxy) {
 	const innerKeys = Object.keys(inner)
 	if (innerKeys.length !== 1 || innerKeys[0] !== key) return undefined
 	if (getOwnPropertySnapshotValue(inner, key) !== inner) return undefined
-	return /** @type {object} */ inner
+	return /** @type {object} */ (inner)
 }
 
 /**

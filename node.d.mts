@@ -87,7 +87,7 @@ export class VirtualConsole extends Console {
 
 	/**
 	 * 退出一层 block；深度归零时按序重放待输出内容（含 `clear` 标记）并恢复长度限制。
-	 * 深度已为 0 时再调用为未定义行为（实现上幂等）。
+	 * 深度已为 0 时调用是空操作：不抛错，`blocked` 保持 `false`。
 	 */
 	unblock(): void
 

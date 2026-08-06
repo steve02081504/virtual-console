@@ -199,7 +199,9 @@ export function trimLeadingRuntimeInternalFrames(frames) {
  */
 export function resolvePrimaryCallsiteFromSegments(segments, stack) {
 	for (const seg of segments ?? [])
-		if (seg?.kind === 'value' && seg?.snapshot?.kind === 'Error')
-			return seg.snapshot.stack.find(f => f?.filePath) ?? null
+		if (seg?.kind === 'value' && seg?.snapshot?.kind === 'Error') {
+			const frame = seg.snapshot.stack?.find(f => f?.filePath)
+			if (frame) return frame
+		}
 	return stack?.find(f => f?.filePath) ?? null
 }

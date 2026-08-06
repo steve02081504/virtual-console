@@ -243,7 +243,7 @@ vc.addLogEntryListener(onEntry);
 
 - **`hookAsyncContext()`** — No-arg form: activate for the rest of the current context with no teardown. Node: `enterWith`. Browser: sets a module-level global — use with care.
 
-- **`block()`** / **`unblock()`** — Reentrant output gate. While blocked, recording and listeners still run (and may temporarily exceed `maxLogEntries`); nothing is forwarded to `baseConsole`. Each `block()` needs a matching `unblock()`. When nesting returns to zero, deferred output (including deferred `clear`) replays in order, then the buffer is trimmed to `maxLogEntries`. Deferred stream writes are replayed as text (binary chunk fidelity is not preserved). Calling `unblock()` at depth 0 is undefined (no-op flush).
+- **`block()`** / **`unblock()`** — Reentrant output gate. While blocked, recording and listeners still run (and may temporarily exceed `maxLogEntries`); nothing is forwarded to `baseConsole`. Each `block()` needs a matching `unblock()`. When nesting returns to zero, deferred output (including deferred `clear`) replays in order, then the buffer is trimmed to `maxLogEntries`. Deferred stream writes are replayed as text (binary chunk fidelity is not preserved). Calling `unblock()` at depth 0 is a no-op: it does not throw and leaves `blocked` false.
 
 - **`freshLine(id, ...args)`** — Progress line that overwrites the previous line with the same `id` on ANSI-capable Node TTYs; in the browser, behaves like `log`.
 

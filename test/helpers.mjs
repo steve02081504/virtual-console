@@ -54,7 +54,7 @@ export function check(condition, message) {
  */
 export function emitChildResults(results) {
 	console.log(JSON.stringify({ results }))
-	process.exit(results.every(r => r.ok) ? 0 : 1)
+	process.exitCode = results.every(r => r.ok) ? 0 : 1
 }
 
 /**

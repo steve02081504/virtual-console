@@ -104,9 +104,8 @@ export function expandSnapshotRef(ref, maxDepth = DEFAULT_SNAPSHOT_DEPTH) {
 	}
 	const { strongTarget } = slot
 	expandRegistry.delete(ref)
-	const refsSet = entryToExpandRefs.get(entry)
-	refsSet?.delete(ref)
-	if (refsSet && refsSet.size === 0) entryToExpandRefs.delete(entry)
+	// 集合空了也保留：finalizer 注册的是这个 Set 实例，删掉会导致下次注册重复登记。
+	entryToExpandRefs.get(entry)?.delete(ref)
 
 	try {
 		return {

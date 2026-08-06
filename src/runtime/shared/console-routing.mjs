@@ -97,11 +97,21 @@ export function createConsoleRouting(initial, getDefaultConsole) {
 		 * @returns {{ getActiveConsole: () => T, setActiveConsole: (value: T) => void, runWithActiveConsole: (value: T, callback: () => any) => any }} 可解构的路由 API 对象。
 		 */
 		getGlobalConsoleResolver() {
+			// 三个字段一律现场委托，避免快照被后续 setGlobalConsoleResolver 替换后失效。
 			return {
 				/** @returns {T} 当前活动控制台实例。 */
 				getActiveConsole: () => routing.getActiveConsole() ?? getDefaultConsole(),
-				setActiveConsole: routing.setActiveConsole,
-				runWithActiveConsole: routing.runWithActiveConsole,
+				/**
+				 * @param {T} value - 新的活动控制台。
+				 * @returns {void}
+				 */
+				setActiveConsole: (value) => routing.setActiveConsole(value),
+				/**
+				 * @param {T} value - 本次上下文使用的控制台。
+				 * @param {() => any} callback - 在该上下文中执行的回调。
+				 * @returns {any} `callback` 的返回值。
+				 */
+				runWithActiveConsole: (value, callback) => routing.runWithActiveConsole(value, callback),
 			}
 		},
 	}

@@ -29,7 +29,7 @@ function truncationLabel(value) {
  */
 function truncateOrPlaceholder(value, expansionScope) {
 	if (expansionScope && value !== null && typeof value === 'object')
-		return { kind: 'truncated', ref: expansionScope.allocRef(/** @type {object} */ value), label: truncationLabel(value) }
+		return { kind: 'truncated', ref: expansionScope.allocRef(/** @type {object} */ (value)), label: truncationLabel(value) }
 	return { kind: 'truncated', ref: '', label: truncationLabel(value) }
 }
 
@@ -75,10 +75,10 @@ function attachInspectRefIfNeeded(snap, valueObject, walkContext) {
 	const inspectRefIndex = walkContext.circularRefs?.get(valueObject)
 	if (inspectRefIndex === undefined) return snap
 	if (snap === null || typeof snap !== 'object' || Array.isArray(snap)) return snap
-	return /** @type {import('../../shared.d.mts').ArgSnapshot} */ {
+	return /** @type {import('../../shared.d.mts').ArgSnapshot} */ ({
 		...snap,
 		inspectRefId: inspectRefIndex,
-	}
+	})
 }
 
 /**
@@ -91,8 +91,8 @@ function snapshotPrimitive(value, valueType) {
 	if (valueType === 'string' || valueType === 'number' || valueType === 'boolean')
 		return { kind: valueType, value }
 	if (valueType === 'undefined') return { kind: 'undefined', value: 'undefined' }
-	if (valueType === 'bigint') return { kind: 'bigint', value: /** @type {bigint} */ value.toString() }
-	if (valueType === 'symbol') return { kind: 'symbol', value: /** @type {symbol} */ value.toString() }
+	if (valueType === 'bigint') return { kind: 'bigint', value: /** @type {bigint} */ (value).toString() }
+	if (valueType === 'symbol') return { kind: 'symbol', value: /** @type {symbol} */ (value).toString() }
 	if (valueType === 'function') {
 		let isClass = false
 		try {
@@ -101,7 +101,7 @@ function snapshotPrimitive(value, valueType) {
 		catch {
 			isClass = false
 		}
-		return { kind: 'function', value: /** @type {Function} */ value.name || '(anonymous)', isClass }
+		return { kind: 'function', value: /** @type {Function} */ (value).name || '(anonymous)', isClass }
 	}
 	return { kind: 'unknown', value: String(value) }
 }
@@ -117,6 +117,21 @@ function collectOwnEntries(targetObject, serializeProperty) {
 	for (const key of Object.keys(targetObject))
 		out.push({ key, value: serializeProperty(getOwnPropertySnapshotValue(targetObject, key)) })
 	return out
+}
+
+/**
+ * 装箱原语（`new Number` / `new Boolean` / `new String`）快照：拆箱文本 + 可选自有属性。
+ * @param {object} boxedObject - 装箱对象。
+ * @param {'Number' | 'Boolean' | 'String'} kind - 快照 kind。
+ * @param {'boxedText' | 'boxedString'} textField - 承载拆箱文本的字段名。
+ * @param {string} text - 拆箱后的展示文本。
+ * @param {(child: unknown) => import('../../shared.d.mts').ArgSnapshot} serializeChild - 子值序列化函数。
+ * @returns {import('../../shared.d.mts').ArgSnapshot} 装箱原语快照。
+ */
+function snapshotBoxedPrimitive(boxedObject, kind, textField, text, serializeChild) {
+	const entries = collectOwnEntries(boxedObject, serializeChild)
+	if (!entries.length) return /** @type {import('../../shared.d.mts').ArgSnapshot} */ ({ kind, [textField]: text })
+	return /** @type {import('../../shared.d.mts').ArgSnapshot} */ ({ kind, [textField]: text, entries })
 }
 
 /**
@@ -137,10 +152,10 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 	const serializeChild = child => walkFn(child, depth + 1, walkContext)
 
 	if (depth >= maxDepth)
-		return truncateOrPlaceholder(/** @type {object} */ value, expansionScope)
+		return truncateOrPlaceholder(/** @type {object} */ (value), expansionScope)
 
 	if (tag === '[object Error]') {
-		const err = /** @type {Error & Record<string, unknown>} */ value
+		const err = /** @type {Error & Record<string, unknown>} */ (value)
 		const entries = []
 		for (const key of Object.keys(err))
 			if (!['stack', 'message', 'name'].includes(key))
@@ -153,35 +168,38 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 			entries,
 		}
 	}
-	if (tag === '[object Date]') return { kind: 'Date', value: /** @type {Date} */ value.getTime() }
-	if (tag === '[object RegExp]') return { kind: 'RegExp', value: /** @type {RegExp} */ value.toString() }
+	if (tag === '[object Date]') return { kind: 'Date', value: /** @type {Date} */ (value).getTime() }
+	if (tag === '[object RegExp]') return { kind: 'RegExp', value: /** @type {RegExp} */ (value).toString() }
 
 	if (tag === '[object Number]') {
-		const boxedObject = /** @type {object} */ value
-		const unboxed = Number(boxedObject)
-		const entries = collectOwnEntries(boxedObject, serializeChild)
-		const boxedText = Object.is(unboxed, -0) ? '-0' : String(unboxed)
-		if (!entries.length) return { kind: 'Number', boxedText }
-		return { kind: 'Number', boxedText, entries }
+		const unboxed = Number.prototype.valueOf.call(value)
+		return snapshotBoxedPrimitive(
+			/** @type {object} */ (value),
+			'Number',
+			'boxedText',
+			Object.is(unboxed, -0) ? '-0' : String(unboxed),
+			serializeChild,
+		)
 	}
-	if (tag === '[object Boolean]') {
-		const boxedObject = /** @type {object} */ value
-		const unboxed = Boolean(boxedObject)
-		const entries = collectOwnEntries(boxedObject, serializeChild)
-		const boxedText = unboxed ? 'true' : 'false'
-		if (!entries.length) return { kind: 'Boolean', boxedText }
-		return { kind: 'Boolean', boxedText, entries }
-	}
-	if (tag === '[object String]') {
-		const boxedObject = /** @type {object} */ value
-		const unboxed = String(boxedObject)
-		const entries = collectOwnEntries(boxedObject, serializeChild)
-		if (!entries.length) return { kind: 'String', boxedString: unboxed }
-		return { kind: 'String', boxedString: unboxed, entries }
-	}
+	if (tag === '[object Boolean]')
+		return snapshotBoxedPrimitive(
+			/** @type {object} */ (value),
+			'Boolean',
+			'boxedText',
+			String(Boolean.prototype.valueOf.call(value)),
+			serializeChild,
+		)
+	if (tag === '[object String]')
+		return snapshotBoxedPrimitive(
+			/** @type {object} */ (value),
+			'String',
+			'boxedString',
+			String.prototype.valueOf.call(value),
+			serializeChild,
+		)
 
 	if (tag === '[object Map]') {
-		const map = /** @type {Map<unknown, unknown>} */ value
+		const map = /** @type {Map<unknown, unknown>} */ (value)
 		return {
 			kind: 'Map',
 			items: [...map.entries()].map(([key, val]) => ({
@@ -192,7 +210,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 	}
 
 	if (tag === '[object Set]') {
-		const set = /** @type {Set<unknown>} */ value
+		const set = /** @type {Set<unknown>} */ (value)
 		return {
 			kind: 'Set',
 			items: [...set.values()].map(el => serializeChild(el)),
@@ -202,7 +220,7 @@ function snapshotObjectByTag(value, tag, depth, walkContext, walkFn) {
 	if (Array.isArray(value))
 		return { kind: 'array', items: value.map(item => serializeChild(item)) }
 
-	const obj = /** @type {object} */ value
+	const obj = /** @type {object} */ (value)
 	return {
 		kind: obj.constructor?.name || 'object',
 		entries: collectOwnEntries(obj, serializeChild),
@@ -248,14 +266,21 @@ function walk(value, depth, walkContext) {
 	if (valueType !== 'object')
 		return snapshotPrimitive(value, valueType)
 
-	const obj = /** @type {object} */ value
+	const obj = /** @type {object} */ (value)
 	if (isProxyInstance(obj)) {
+		const stack = walkContext.seenStack
+		// 互相转发的 Proxy 外壳同样成环，且外壳不进 walkObject，需在此自行入栈。
+		if (stack.includes(obj))
+			return { kind: 'circular', refId: assignCircularRefIndex(walkContext, obj) }
 		const resolved = resolveProxyInspectTarget(obj)
-		return {
-			kind: 'Proxy',
-			target: resolved !== undefined
-				? walk(resolved, depth, walkContext)
-				: walkObject(obj, depth, walkContext),
+		if (resolved === undefined)
+			return { kind: 'Proxy', target: walkObject(obj, depth, walkContext) }
+		stack.push(obj)
+		try {
+			return { kind: 'Proxy', target: walk(resolved, depth, walkContext) }
+		}
+		finally {
+			stack.pop()
 		}
 	}
 

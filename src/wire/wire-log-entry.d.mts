@@ -5,7 +5,7 @@ export interface WireLogEntryPayload {
 	level?: string
 	method?: string
 	timestamp?: number
-	id?: string
+	id?: string | number
 	segments?: LogSegment[]
 	stack?: StackFrame[]
 }

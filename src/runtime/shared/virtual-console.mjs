@@ -44,6 +44,15 @@ export function isVirtualConsole(value) {
 export function VirtualConsoleMixin(Base = Object, platform) {
 	return class VirtualConsoleBase extends Base {
 		/**
+		 * 目标是否与本 mixin 共享私有名：跨包/跨运行时的另一份 mixin 只满足品牌，私有成员并不存在。
+		 * @param {unknown} target - 候选 `baseConsole`。
+		 * @returns {boolean} 可直接跨实例访问 `#` 成员时为 `true`。
+		 */
+		static #sharesMixinPrivates(target) {
+			return isVirtualConsole(target) && #ingest in /** @type {object} */ (target)
+		}
+
+		/**
 		 * 所有捕获输出拼接成的纯文本字符串。
 		 * @returns {string} 聚合文本。
 		 */
@@ -222,7 +231,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 
 		/**
 		 * 退出一层 block；深度归零时按序执行待输出回调并恢复长度限制。
-		 * 深度已为 0 时再调用为未定义行为：实现上幂等（空重放 + 裁剪）。
+		 * 深度已为 0 时调用是空操作（空重放 + 裁剪），不抛错。
 		 * @returns {void}
 		 */
 		unblock() {
@@ -252,7 +261,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		#dispatch(method, args, skipFrames = this.stackFrameSkipCount + CONSOLE_CALL_STACK_SKIP) {
 			if (!this.#needsEntry) {
 				if (!this.options.realConsoleOutput) return
-				if (isVirtualConsole(this.#baseConsole))
+				if (VirtualConsoleBase.#sharesMixinPrivates(this.#baseConsole))
 					return this.#baseConsole.#dispatch(method, args, skipFrames + 1)
 				if (PLATFORM_EMITTED_METHODS.has(method) || this.#baseConsole[method] instanceof Function)
 					return this.#emit(newLogEntry({ method, args, supportsAnsi: this.options.supportsAnsi }))
@@ -326,7 +335,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 		 * @returns {void}
 		 */
 		#emit(entry) {
-			if (isVirtualConsole(this.#baseConsole))
+			if (VirtualConsoleBase.#sharesMixinPrivates(this.#baseConsole))
 				return this.#baseConsole.#ingest(entry)
 			const lastFreshLineId = this.#lastFreshLineId
 			this.#lastFreshLineId = entry.id ?? null
@@ -356,7 +365,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 			this.#lastFreshLineId = null
 			if (!this.#needsEntry) {
 				if (!this.options.realConsoleOutput) return callback()
-				if (isVirtualConsole(this.#baseConsole))
+				if (VirtualConsoleBase.#sharesMixinPrivates(this.#baseConsole))
 					return this.#baseConsole.#ingestChunk(streamName, chunk, encoding, callback, skipFrames + 1)
 				return platform.writeNativeChunk(streamName, chunk, encoding, callback)
 			}
@@ -368,7 +377,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 				this.#pendingOutput.push(() => this.#emit(entry))
 				return callback()
 			}
-			if (isVirtualConsole(this.#baseConsole)) {
+			if (VirtualConsoleBase.#sharesMixinPrivates(this.#baseConsole)) {
 				this.#baseConsole.#ingest(entry)
 				return callback()
 			}

@@ -125,6 +125,20 @@ async function runCases() {
 		check(vc.outputEntries.length === 0 && clears === 1, 'clear 清空并触发监听')
 	}))
 
+	results.push(await runCase('stream_pseudo_methods_emit_native', async () => {
+		const calls = []
+		const fakeConsole = {
+			log: (...args) => calls.push(['log', ...args]),
+			error: (...args) => calls.push(['error', ...args]),
+		}
+		const vc = new VirtualConsole({ recordOutput: false, realConsoleOutput: true, baseConsole: fakeConsole })
+		vc.writeAs('stdout', 'out-text')
+		vc.writeAs('stderr', 'err-text')
+		check(calls.length === 2, `expected 2 native calls, got ${calls.length}`)
+		check(calls[0][0] === 'log' && calls[0][1] === 'out-text', 'stdout 走 console.log')
+		check(calls[1][0] === 'error' && calls[1][1] === 'err-text', 'stderr 走 console.error')
+	}))
+
 	results.push(await runCase('maxLogEntries', async () => {
 		const vc = quietVc({ maxLogEntries: 2 })
 		await vc.hookAsyncContext(() => {

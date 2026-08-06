@@ -1,7 +1,7 @@
 import { ENTRY_TRAILING_NEWLINE } from '../../format/segments.mjs'
 import { normalizeDirOptionsPayload } from '../snapshot/dir-options.mjs'
 import { getExpansionScope } from '../snapshot/expansion.mjs'
-import { DEFAULT_SNAPSHOT_DEPTH, serializeArgSnapshot } from '../snapshot/serialize.mjs'
+import { serializeArgSnapshot } from '../snapshot/serialize.mjs'
 
 import { LogEntry } from './log-entry.mjs'
 
@@ -11,14 +11,15 @@ export class DirLogEntry extends LogEntry {
 	 * @returns {import('../../shared.d.mts').LogSegment[]} value + 末尾换行片段。
 	 */
 	toSegments() {
-		const [subject, dirOptions] = this.args
+		const [subject, rawDirOptions] = this.args
+		const dirOptions = normalizeDirOptionsPayload(rawDirOptions)
 		return [{
 			kind: 'value',
 			snapshot: serializeArgSnapshot(subject, {
-				maxDepth: DEFAULT_SNAPSHOT_DEPTH,
+				maxDepth: dirOptions.depth,
 				expansionScope: getExpansionScope(this),
 			}),
-			dirOptions: normalizeDirOptionsPayload(dirOptions),
+			dirOptions,
 		}, ENTRY_TRAILING_NEWLINE]
 	}
 }

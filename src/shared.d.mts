@@ -283,7 +283,17 @@ export declare function buildArgsSegments(
 ): LogSegment[]
 
 /**
+ * `isVirtualConsole` 收窄到的结构类型：Node 与浏览器两侧 `VirtualConsole` 的公共子集。
+ */
+export interface VirtualConsoleLike {
+	outputEntries: LogEntry[]
+	writeAs(level: WriteAsLevelArg, ...args: unknown[]): void
+	block(): void
+	unblock(): void
+}
+
+/**
  * 判断值是否为本库 VirtualConsole 实例。
  * Node 的 `Console[Symbol.hasInstance]` 会对任意 console 返回 true，不可靠；请用本函数。
  */
-export declare function isVirtualConsole(value: unknown): boolean
+export declare function isVirtualConsole(value: unknown): value is VirtualConsoleLike

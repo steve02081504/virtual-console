@@ -33,6 +33,7 @@ function testBrowserImplementationInChildProcess() {
 		'macro_task_escapes_hookAsyncContext',
 		'no_arg_hookAsyncContext_sets_global',
 		'writeAs_and_clear',
+		'stream_pseudo_methods_emit_native',
 		'maxLogEntries',
 	]) {
 		const item = results.find(r => r.name === name)

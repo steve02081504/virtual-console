@@ -5,6 +5,8 @@
  * 深度扫描若呈指数级增长，说明 snapshot-display 又退化成了对子节点双重渲染。
  */
 
+import { Writable } from 'node:stream'
+
 import {
 	VirtualConsole,
 	newLogEntry,
