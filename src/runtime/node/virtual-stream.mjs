@@ -54,19 +54,10 @@ function getListenerInfo(stream) {
 export class VirtualStream extends Writable {
 	/**
 	 * @param {import('node:stream').Writable} targetStream - 用于 TTY 属性透传的底层流。
-	 * @param {(chunk: Buffer | string, encoding: string, callback: (error?: Error | null) => void) => void} onWrite - 控制台写入回调。
+	 * @param {(chunk: Buffer | string, encoding: string, callback: (error?: Error | null) => void) => void} write - 控制台写入回调。
 	 */
-	constructor(targetStream, onWrite) {
-		super({
-			/**
-			 * 将写入委托给控制台回调，由上层决定记录与转发策略。
-			 * @param {Buffer | string} chunk - 待写入数据块。
-			 * @param {string} encoding - 编码名。
-			 * @param {(error?: Error | null) => void} callback - 写入完成回调。
-			 * @returns {void}
-			 */
-			write: (chunk, encoding, callback) => onWrite(chunk, encoding, callback),
-		})
+	constructor(targetStream, write) {
+		super({ write })
 		this.#targetStream = targetStream
 
 		if (targetStream.isTTY) {
