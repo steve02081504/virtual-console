@@ -7,7 +7,6 @@ export const {
 	consoleAsyncStorage,
 	VirtualConsole,
 	defaultConsole,
-	globalConsoleAdditionalProperties,
 	setGlobalConsoleResolver,
 	getGlobalConsoleResolver,
 	console,

@@ -26,7 +26,6 @@ export type { VirtualConsoleOptions, VirtualStream } from './node.d.mts'
 export {
 	VirtualConsole,
 	defaultConsole,
-	globalConsoleAdditionalProperties,
 	console,
 	setGlobalConsoleResolver,
 	getGlobalConsoleResolver,

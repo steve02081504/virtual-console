@@ -32,7 +32,7 @@ import { VirtualConsole } from 'https://esm.sh/@steve02081504/virtual-console';
 
 The default entry resolves to the correct Node or browser implementation at runtime, but its TypeScript types are always Node-flavoured. Use `/node` or `/browser` when you want types that match your target (`stdout`/`stderr` levels, `AsyncLocalStorage`, browser scoping caveats, etc.).
 
-**Default entry (`.`)** re-exports: `VirtualConsole`, `console`, `defaultConsole`, `consoleAsyncStorage`, `globalConsoleAdditionalProperties`, `setGlobalConsoleResolver`, `getGlobalConsoleResolver`.
+**Default entry (`.`)** re-exports: `VirtualConsole`, `console`, `defaultConsole`, `consoleAsyncStorage`, `setGlobalConsoleResolver`, `getGlobalConsoleResolver`.
 
 For `renderPlain` / `renderAnsi` / `renderHtml`, `WireLogEntry`, `newLogEntry`, `LogEntry`, and related helpers, import from `/node` or `/browser`.
 
@@ -411,7 +411,6 @@ In the browser, use custom reflection when you need more than one logical “act
 | `consoleAsyncStorage`                                   | `AsyncLocalStorage` behind `hookAsyncContext` (always present from `/node`; main entry types it as possibly absent) |
 | `defaultConsole`                                        | Always-on fallback: forwards to the original global `console`                                                       |
 | `console`                                               | Proxy that delegates to the active `VirtualConsole` in the current async context                                    |
-| `globalConsoleAdditionalProperties`                     | Plain object merged onto the proxy on every access—extend `globalThis.console` without patching the proxy itself    |
 | `setGlobalConsoleResolver` / `getGlobalConsoleResolver` | Replace / read the three active-console routing callbacks                                                           |
 | `VirtualStream` (type)                                  | Virtual `stdout` / `stderr` wrappers; `targetStream`, TTY props, `getColorDepth()`, `hasColors()`                   |
 

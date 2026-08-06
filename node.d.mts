@@ -139,13 +139,6 @@ export const consoleAsyncStorage: AsyncLocalStorage<VirtualConsole>
 export const defaultConsole: VirtualConsole
 
 /**
- * 合并到全局 `console` 代理上的附加属性对象。
- * 对 `globalThis.console` 写入未知属性时，值会存储在这里，
- * 以便在不同异步上下文间共享自定义扩展字段。
- */
-export const globalConsoleAdditionalProperties: Record<string, unknown>
-
-/**
  * 替换全局 `console` 代理的上下文路由逻辑。
  * @param resolveWithFallback 给定 `defaultConsole` 作为兜底，返回当前应激活的 `VirtualConsole`
  * @param setActive 将指定实例设为当前上下文的活动控制台

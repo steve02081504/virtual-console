@@ -9,7 +9,7 @@ import { FullProxy } from 'full-proxy'
  * 对 `globalThis.console` 写入未知属性时，值会存储在这里，
  * 以便在不同异步上下文间共享自定义扩展字段。
  */
-export const globalConsoleAdditionalProperties = {}
+const globalConsoleAdditionalProperties = {}
 
 /**
  * @typedef {object} CreateGlobalConsoleProxyOptions
