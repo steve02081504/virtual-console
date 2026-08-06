@@ -3,12 +3,21 @@
  */
 
 /**
- * 日志条目类型与工厂：`LogEntry` / `newLogEntry`。
+ * 日志条目类型与工厂：`LogEntry` 及其子类 / `newLogEntry`。
  */
 export {
 	newLogEntry,
 	LogEntry,
+	FreshLineLogEntry,
+	DirLogEntry,
+	TraceLogEntry,
+	StreamLogEntry,
 } from '../core/entries/index.mjs'
+
+/**
+ * 识别本库 VirtualConsole（勿用 `instanceof`，Node `Console[Symbol.hasInstance]` 不可靠）。
+ */
+export { isVirtualConsole } from '../runtime/shared/virtual-console.mjs'
 
 /**
  * 调用栈解析与裁剪：提取帧信息、去除运行时内部帧。

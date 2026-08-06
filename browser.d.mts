@@ -1,15 +1,7 @@
 import type { BaseVirtualConsoleOptions, GlobalConsoleRouting, LogEntry, WriteAsLevelArg } from './src/shared.d.mts'
 
-export type {
-	CapturedLogLevel,
-	WriteAsLevelArg,
-	StackFrame,
-	ArgSnapshot,
-	LogSegment,
-	GlobalConsoleRouting,
-} from './src/shared.d.mts'
-
-export type { LogEntry }
+export * from './src/shared.d.mts'
+export { WireLogEntry } from './src/wire/wire-log-entry.mjs'
 
 /**
  * 浏览器环境虚拟控制台配置选项
@@ -40,7 +32,8 @@ export class VirtualConsole {
 	options: Required<Omit<VirtualConsoleOptions, 'baseConsole'>> & {
 		baseConsole?: VirtualConsole | Console
 	}
-
+	/** `realConsoleOutput` 的透传目标控制台实例 */
+	baseConsole: VirtualConsole | Console
 	/**
 	 * 采集调用栈时额外跳过的帧数；初始为 `0`。
 	 * 在自定义包装函数中调用 `console.*` 时，在调用前 `+1`，`finally` 中 `-1`，
@@ -144,8 +137,6 @@ export function getGlobalConsoleResolver(): GlobalConsoleRouting<VirtualConsole>
 
 /** 全局 `console` 代理对象——所有调用委托给当前上下文中激活的 `VirtualConsole` */
 export const console: VirtualConsole
-
-export type * from './src/shared.d.mts'
 
 declare global {
 	var console: VirtualConsole

@@ -2,7 +2,12 @@ import type { ArgSnapshot } from '../shared.d.mts'
 
 export declare function handleClientWireMessage(
 	parsed: unknown,
-	handlers?: { expandSnapshotRef?: (ref: string, maxDepth?: number) => { ok: boolean; snapshot?: ArgSnapshot; error?: string } }
+	handlers?: {
+		expandSnapshotRef?: (
+			ref: string,
+			maxDepth?: number
+		) => { ok: true; snapshot: ArgSnapshot } | { ok: false; error: string }
+	}
 ): Record<string, unknown> | null
 
 /** `express-ws` 等挂载用的回调，以及群发 / 遍历当前连接的扩展方法。 */

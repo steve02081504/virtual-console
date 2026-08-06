@@ -25,6 +25,7 @@ export type WriteAsLevelArg =
 	| 'trace'
 	| 'stdout'
 	| 'stderr'
+	| 'freshLine'
 	| (string & {})
 
 /**
@@ -57,9 +58,6 @@ export interface ArgSnapshotTruncated {
  */
 export type ArgSnapshot = Record<string, unknown> | ArgSnapshotTruncated
 
-/**
- * 结构化日志片段（与 `LogEntry#toSegments()` 一致，可 JSON 传输）
- */
 /** `console.dir` 第二参数的 JSON 可传输子集（与 Node `util.inspect` 选项名对齐）。 */
 export interface DirOptionsPayload {
 	/** 对象展开深度 */
@@ -81,8 +79,27 @@ export type LogSegment =
 	| { kind: 'value'; snapshot: ArgSnapshot; dirOptions?: DirOptionsPayload }
 	| { kind: 'trace'; stack: StackFrame[] }
 
-/** 单条日志条目接口 */
-export interface LogEntry {
+/** `newLogEntry` / `LogEntry` 构造选项（`stack` 与 `stackSource` 二选一）。 */
+export interface LogEntryInit {
+	method: string
+	args?: unknown[]
+	stack?: StackFrame[]
+	stackSource?: Error
+	skipFrames?: number
+	timestamp?: number
+	supportsAnsi?: boolean
+}
+
+/** 惰性展开作用域：同 entry 多次序列化复用 target→ref。 */
+export interface ExpansionScope {
+	allocRef(target: object): string
+}
+
+/**
+ * 单条日志条目：`segments` 由 {@link LogEntry#toSegments} 按需构造；`stdout`/`stderr` 带 `text`。
+ * `stack` 可惰性解析：构造时传入 `stackSource`（`Error`）+ `skipFrames`，首次读取 `stack` 时才解析。
+ */
+export declare class LogEntry {
 	/** 经 `methodNameToLevel` 归一化后的语义级别 */
 	level: CapturedLogLevel
 	/** 对应的 console / 流方法名（如 `log`、`trace`、Node 下 `stdout`） */
@@ -91,10 +108,10 @@ export interface LogEntry {
 	readonly args: unknown[]
 	/** 参与格式化 / 透传展示的参数（`freshLine` 跳过 id） */
 	readonly displayArgs: unknown[]
-	/** `freshLine` 主 id（非 freshLine 条目可为空） */
+	/** `freshLine` 主 id（非 freshLine 条目无此字段） */
 	readonly id?: string
-	/** 调用栈帧数组（两端均支持） */
-	stack: StackFrame[]
+	/** 调用栈帧数组（两端均支持；惰性来源在首次读取时解析） */
+	readonly stack: StackFrame[]
 	/** 日志记录时的 Unix 时间戳（毫秒） */
 	timestamp: number
 	/** 展示来源：优先片段中首个 Error 的栈帧，否则为捕获调用栈中第一条 */
@@ -103,6 +120,7 @@ export interface LogEntry {
 	supportsAnsi: boolean
 	/** Node `stdout`/`stderr`：合并后的原始流文本；非流条目无此字段 */
 	text?: string
+	constructor(options: LogEntryInit)
 	/** 终端 ANSI 串（流条目为原始合并文本） */
 	toString(): string
 	/** 无 ANSI 的纯文本 */
@@ -115,6 +133,32 @@ export interface LogEntry {
 	toSegments(): LogSegment[]
 	/** JSON 传输视图（默认与 wire 载荷字段对齐） */
 	toJSON(): Record<string, unknown>
+}
+
+/** `console.freshLine` 条目：首个参数为行 id，不进入日志格式化。 */
+export declare class FreshLineLogEntry extends LogEntry {
+	readonly method: 'freshLine'
+	readonly id: string
+	constructor(options: LogEntryInit & { method: 'freshLine' })
+}
+
+/** `console.dir` 条目：携带单个 value 段及可选 dirOptions。 */
+export declare class DirLogEntry extends LogEntry {
+	readonly method: 'dir'
+	constructor(options: LogEntryInit & { method: 'dir' })
+}
+
+/** `console.trace` 条目：普通参数片段 + trace 快照片段。 */
+export declare class TraceLogEntry extends LogEntry {
+	readonly method: 'trace'
+	constructor(options: LogEntryInit & { method: 'trace' })
+}
+
+/** `stdout` / `stderr` 流日志条目：原样透传文本，不追加换行片段。 */
+export declare class StreamLogEntry extends LogEntry {
+	readonly method: 'stdout' | 'stderr'
+	text: string
+	constructor(options: LogEntryInit & { method: 'stdout' | 'stderr' })
 }
 
 /** 按宿主环境细分的日志条目（覆盖 `level` 联合） */
@@ -155,22 +199,43 @@ export interface GlobalConsoleRouting<VC = unknown> {
 	runWithActiveConsole: <T>(value: VC, fn: () => T | Promise<T>) => Promise<T>
 }
 
+/** plain 渲染选项 */
+export interface RenderPlainOptions {
+	indent?: string
+	maxDepth?: number
+}
+
+/** ANSI 渲染选项 */
+export interface RenderAnsiOptions {
+	colorize?: boolean
+	omitPrintfCss?: boolean
+	indent?: string
+	maxDepth?: number
+}
+
+/** HTML 渲染选项 */
+export interface RenderHtmlOptions {
+	traceStackWrapperStyle?: string
+	traceStackLinkStyle?: string
+	omitPrintfCss?: boolean
+	supportsAnsi?: boolean
+	indent?: string
+	maxDepth?: number
+	resolveTraceFrameHref?: (frame: StackFrame) => string | undefined
+}
+
 /** 下列声明的实现分布在 Node / 浏览器入口 `.mjs`，此处集中声明以供平台 `.d.mts` 重导出。 */
 
 export declare const DEFAULT_SNAPSHOT_DEPTH: number
 
 export declare function serializeArgSnapshot(
 	value: unknown,
-	options?: { maxDepth?: number; expansionScope?: object | null }
+	options?: { maxDepth?: number; expansionScope?: ExpansionScope | null }
 ): ArgSnapshot
 
-export declare function createExpansionScope(entry: object): {
-	allocRef(target: object): string
-}
+export declare function createExpansionScope(entry: object): ExpansionScope
 
-export declare function getExpansionScope(entry: object): {
-	allocRef(target: object): string
-}
+export declare function getExpansionScope(entry: object): ExpansionScope
 
 export declare function expandSnapshotRef(
 	ref: string,
@@ -185,17 +250,15 @@ export declare function resolvePrimaryCallsiteFromSegments(
 	stack?: StackFrame[]
 ): StackFrame | null
 
-export declare function newLogEntry(options: object): LogEntry
+export declare function newLogEntry(options: LogEntryInit & { method: 'freshLine' }): FreshLineLogEntry
+export declare function newLogEntry(options: LogEntryInit & { method: 'dir' }): DirLogEntry
+export declare function newLogEntry(options: LogEntryInit & { method: 'trace' }): TraceLogEntry
+export declare function newLogEntry(options: LogEntryInit & { method: 'stdout' | 'stderr' }): StreamLogEntry
+export declare function newLogEntry(options: LogEntryInit): LogEntry
 
-export declare function renderPlain(
-	segments: LogSegment[],
-	options?: { indent?: string; maxDepth?: number }
-): string
-export declare function renderAnsi(
-	segments: LogSegment[],
-	options?: { colorize?: boolean; omitPrintfCss?: boolean; indent?: string; maxDepth?: number }
-): string
-export declare function renderHtml(segments: LogSegment[], options?: Record<string, unknown>): string
+export declare function renderPlain(segments: LogSegment[], options?: RenderPlainOptions): string
+export declare function renderAnsi(segments: LogSegment[], options?: RenderAnsiOptions): string
+export declare function renderHtml(segments: LogSegment[], options?: RenderHtmlOptions): string
 
 export declare function stripTerminalDecorations(text: string): string
 export declare function stripOscTitleSequences(text: string): string
@@ -215,6 +278,12 @@ export declare function collectPrintfFormatParts(
 
 export declare function buildArgsSegments(
 	args: unknown[],
-	expansionScope?: object | null,
+	expansionScope?: ExpansionScope | null,
 	snapshotDepth?: number
 ): LogSegment[]
+
+/**
+ * 判断值是否为本库 VirtualConsole 实例。
+ * Node 的 `Console[Symbol.hasInstance]` 会对任意 console 返回 true，不可靠；请用本函数。
+ */
+export declare function isVirtualConsole(value: unknown): boolean

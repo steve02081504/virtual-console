@@ -4,14 +4,8 @@ import type { Writable } from 'node:stream'
 
 import type { BaseVirtualConsoleOptions, GlobalConsoleRouting, LogEntry, WriteAsLevelArg } from './src/shared.d.mts'
 
-export type {
-	CapturedLogLevel,
-	WriteAsLevelArg,
-	StackFrame,
-	ArgSnapshot,
-	LogSegment,
-	GlobalConsoleRouting,
-} from './src/shared.d.mts'
+export * from './src/shared.d.mts'
+export { WireLogEntry } from './src/wire/wire-log-entry.mjs'
 
 /**
  * 虚拟可写流，代理真实的 `stdout` / `stderr`。
@@ -168,8 +162,6 @@ export function getGlobalConsoleResolver(): GlobalConsoleRouting<VirtualConsole>
 
 /** 全局 `console` 代理对象——所有调用委托给当前异步上下文中激活的 `VirtualConsole` */
 export const console: VirtualConsole
-
-export type * from './src/shared.d.mts'
 
 declare global {
 	var console: VirtualConsole

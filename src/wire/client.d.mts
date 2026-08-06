@@ -6,8 +6,16 @@ import type {
 	StreamWireLogEntry,
 } from './wire-log-entry.mjs'
 
-export { WireLogEntry } from './wire-log-entry.mjs'
-export { createWireLogEntryFromJson } from './wire-log-entry.mjs'
+export { WireLogEntry, createWireLogEntryFromJson } from './wire-log-entry.mjs'
+export type {
+	FreshLineWireLogEntry,
+	DirWireLogEntry,
+	TraceWireLogEntry,
+	StreamWireLogEntry,
+	WireLogEntryPayload,
+	WireContext,
+	WireRenderOptions,
+} from './wire-log-entry.mjs'
 
 export type AnyWireLogEntry =
 	| WireLogEntry
@@ -35,10 +43,7 @@ export type LogWireClientHandlers = {
 	onError?: (event: Event) => void
 }
 
-export declare function connectLogWire(
-	url: string | URL,
-	options?: LogWireClientHandlers & { protocols?: string | string[] }
-): {
+export type LogWireConnection = {
 	ws: WebSocket
 	close: (code?: number, reason?: string) => void
 	requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>
@@ -47,14 +52,12 @@ export declare function connectLogWire(
 	detach: () => void
 }
 
+export declare function connectLogWire(
+	url: string | URL,
+	options?: LogWireClientHandlers & { protocols?: string | string[] }
+): LogWireConnection
+
 export declare function attachLogWire(
 	ws: WebSocket,
 	handlers?: LogWireClientHandlers
-): {
-	ws: WebSocket
-	close: (code?: number, reason?: string) => void
-	requestExpand: (ref: string, maxDepth?: number) => Promise<unknown>
-	requestClear: () => boolean
-	sendJson: (obj: object) => boolean
-	detach: () => void
-}
+): LogWireConnection

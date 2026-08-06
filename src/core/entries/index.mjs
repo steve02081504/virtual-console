@@ -16,6 +16,18 @@ export { LogEntry } from './log-entry.mjs'
  *
  */
 export { FreshLineLogEntry } from './fresh-line-entry.mjs'
+/**
+ *
+ */
+export { DirLogEntry } from './dir-entry.mjs'
+/**
+ *
+ */
+export { TraceLogEntry } from './trace-entry.mjs'
+/**
+ *
+ */
+export { StreamLogEntry } from './stream-entry.mjs'
 
 const methodToConstructorMap = {
 	stdout: StreamLogEntry,
