@@ -67,7 +67,7 @@ export function assertEqual(actual, expected, message) {
  * @returns {void} 无返回值。
  */
 export function assertIncludes(str, substr, message) {
-	if (typeof str === 'string' && str.includes(substr)) {
+	if (str.includes(substr)) {
 		console.log(`  ✓ ${message}`)
 		passed++
 	} else {

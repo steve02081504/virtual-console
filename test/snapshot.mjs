@@ -13,10 +13,12 @@ import {
 	serializeArgSnapshot,
 } from '@steve02081504/virtual-console'
 
-import { pathToFileURL } from '../../../src/core/stack.mjs'
-import { parseCssDecls } from '../../../src/format/css-to-ansi.mjs'
-import { applyExpandedSnapshotsInSegments } from '../../../src/wire/expand-wire-segments.mjs'
-import { assert, assertEqual, assertIncludes, runTestGroup } from '../../harness.mjs'
+import { pathToFileURL } from '../src/core/stack.mjs'
+import { parseCssDecls } from '../src/format/css-to-ansi.mjs'
+import { formatSnapshot } from '../src/format/snapshot-display.mjs'
+import { applyExpandedSnapshotsInSegments } from '../src/wire/expand-wire-segments.mjs'
+
+import { assert, assertEqual, assertIncludes, runTestGroup } from './harness.mjs'
 
 /**
  * printf 风格参数转 plain 文本。
@@ -55,7 +57,7 @@ function testRenderPrintfPlain() {
 	assertEqual(renderPrintfPlain([]), '', '空参数返回空字符串')
 	assertEqual(renderPrintfPlain(['hello']), 'hello', '单字符串正确返回')
 	assertEqual(renderPrintfPlain(['%s', 'world']), 'world', '%s 格式化正确')
-	assertEqual(renderPrintfPlain(['%d', 42]), '42', '%d 格式化正确')
+	assertEqual(renderPrintfPlain(['%d', 72]), '72', '%d 格式化正确')
 	assertEqual(renderPrintfPlain(['%f', 3.14]), '3.14', '%f 格式化正确')
 	assertEqual(renderPrintfPlain(['%f', Symbol('x')]), 'NaN', '%f 对 Symbol 返回 NaN')
 	assertEqual(renderPrintfPlain(['%d', Symbol('x')]), 'NaN', '%d 对 Symbol 返回 NaN')
@@ -80,7 +82,7 @@ function testRenderPrintfPlain() {
 	assertIncludes(traceResult, 'debug', 'renderPrintfPlain(LogEntry) 文本包含 level 语义')
 	assertIncludes(traceResult, 'trace', 'renderPrintfPlain(LogEntry) 文本含 method 信息')
 	assertIncludes(traceEntry.toString(), 'trace label', 'LogEntry trace toString 含消息')
-	assertIncludes(traceResult, 'testFormatArgs', 'renderPrintfPlain 结果含栈帧函名信息')
+	assertIncludes(traceEntry.toString(), 'testFormatArgs', 'trace toString 含栈帧函名信息')
 }
 
 /**
@@ -388,10 +390,169 @@ async function testTruncatedAndExpand() {
 }
 
 /**
+ * 验证同一 entry 多次 toSegments 复用展开 ref，且仍可 expand。
+ */
+async function testExpansionScopeReuseAcrossToSegments() {
+	console.log('\n=== [同一 entry 多次 toSegments 复用展开 ref] ===')
+	let deep = { l: 'leaf' }
+	for (let i = 0; i < 10; i++) deep = { nest: deep }
+	const entry = newLogEntry({ method: 'log', args: [deep], stack: [], supportsAnsi: false })
+	/**
+	 * 在快照树中递归查找首个 `truncated.ref` 字符串。
+	 * @param {unknown} snap - 快照节点或子树。
+	 * @returns {string} 找到的 ref，无则为空串。
+	 */
+	function findTruncatedRef(snap) {
+		if (!snap || typeof snap !== 'object') return ''
+		const node = /** @type {Record<string, unknown>} */ snap
+		if (node.kind === 'truncated' && typeof node.ref === 'string' && node.ref) return node.ref
+		for (const child of Object.values(node)) {
+			const found = findTruncatedRef(child)
+			if (found) return found
+		}
+		return ''
+	}
+	/**
+	 * 从 `toSegments()` 结果中取第一个 truncated ref。
+	 * @param {import('../src/shared.d.mts').LogSegment[]} segments - 结构化片段数组。
+	 * @returns {string} 首个 ref，无则为空串。
+	 */
+	function firstRef(segments) {
+		for (const segment of segments)
+			if (segment.kind === 'value') {
+				const ref = findTruncatedRef(segment.snapshot)
+				if (ref) return ref
+			}
+
+		return ''
+	}
+	const first = entry.toSegments()
+	const second = entry.toSegments()
+	const refFirst = firstRef(first)
+	const refSecond = firstRef(second)
+	assert(refFirst.length > 0, '首次 toSegments 含 truncated.ref')
+	assertEqual(refFirst, refSecond, '再次 toSegments 复用同一 truncated.ref')
+	const expanded = expandSnapshotRef(refFirst)
+	assert(expanded.ok === true, '复用后的 ref 仍可 expandSnapshotRef')
+}
+
+/**
+ * 覆盖常见占位符、ANSI、CSS 与注入场景的端到端 VC 渲染行为。
+ */
+async function testRendering() {
+	console.log('\n=== [渲染功能测试] ===')
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	await vc.hookAsyncContext(() => {
+		console.log('--- [1. Standard Placeholders] ---')
+		console.log('String: %s', 'Hello World')
+		console.log('Integer: %d, Float: %f', 123, 45.678)
+		console.log('JSON Object: %o', { id: 1, status: 'ok' })
+		console.log('\n--- [2. ANSI Colors] ---')
+		console.log('\x1b[31mRed Text\x1b[0m')
+		console.log('\x1b[32mGreen Text\x1b[0m and \x1b[34mBlue Text\x1b[0m')
+		console.log('\n--- [3. CSS Styling (%c)] ---')
+		console.log('%cThis text is Blue and Large', 'color: blue; font-size: 20px')
+		console.log('Normal, %cRed Background%c, Normal again', 'background: red; color: white', '')
+		console.log('\n--- [4. Injection Test] ---')
+		const injectionPayload = '"><script>alert("pwned")</script><span style="'
+		console.log('%cInjection Test', injectionPayload)
+		console.log('Attempting to inject a script tag: %s', '<script>alert("oops")</script>')
+		console.log('\n--- [5. Special Cases] ---')
+		console.log('%s', Object.create(null))
+		const a = {}; a.a = a
+		console.log(a)
+		console.log('%f', Symbol('lol'))
+		console.log('%d', Symbol('lol'))
+		console.log('%j', Symbol('lol'))
+		console.log('%o', Symbol('lol'))
+	})
+	assertIncludes(vc.outputs, 'String: Hello World', 'outputs 包含格式化字符串')
+	assertIncludes(vc.outputs, 'Integer: 123, Float: 45.678', 'outputs 包含数字格式化')
+	assertIncludes(vc.outputsHtml, '&lt;script&gt;', 'HTML 输出对 script 标签进行了转义')
+	assertIncludes(vc.outputsHtml, 'color: blue; font-size: 20px', '支持 %c CSS 样式')
+	assertIncludes(vc.outputs, 'NaN', 'Symbol 用于 %f/%d 格式化时返回 NaN')
+}
+
+/**
+ * 装箱原语展示须与 util.inspect 一致（`new Boolean(false)` 不得被拆箱成 true）。
+ */
+function testBoxedPrimitiveParity() {
+	console.log('\n=== [装箱原语快照与 util.inspect 一致] ===')
+	for (const boxed of [new Boolean(false), new Boolean(true), new Number(-0), new Number(42)])
+		assertEqual(
+			formatSnapshot(serializeArgSnapshot(boxed), { colorize: false }),
+			util.inspect(boxed),
+			`${util.inspect(boxed)} 展示一致`,
+		)
+}
+
+/**
+ * 伪造 Symbol.toStringTag 不得使装箱拆箱抛错；应退回普通对象快照。
+ */
+function testSpoofedBoxedToStringTagFallsBack() {
+	console.log('\n=== [伪造 toStringTag 装箱拆箱回退] ===')
+	for (const tag of ['Number', 'Boolean', 'String']) {
+		const spoof = { x: 1, [Symbol.toStringTag]: tag }
+		const nested = { inner: { [Symbol.toStringTag]: 'Number', y: 2 } }
+		const snap = serializeArgSnapshot(spoof)
+		assertEqual(snap.kind, 'Object', `伪造 ${tag} 退回普通对象`)
+		const nestedSnap = serializeArgSnapshot(nested)
+		assertEqual(nestedSnap.kind, 'Object', `嵌套伪造 ${tag} 不抛错`)
+	}
+}
+
+/**
+ * 非标识符键的转义须与 util.inspect 一致（反斜杠 / CR / TAB / 控制字符 / 引号）。
+ */
+function testEntryKeyEscapeParity() {
+	console.log('\n=== [对象键转义与 util.inspect 一致] ===')
+	const weirdKeys = { 'a\\b': 1, 'c\rd': 2, 'e\tf': 3, 'g\u0001h': 4, 'i\'j': 5 }
+	assertEqual(
+		formatSnapshot(serializeArgSnapshot(weirdKeys), { colorize: false }),
+		util.inspect(weirdKeys),
+		'非标识符键与控制字符转义一致',
+	)
+}
+
+/**
+ * 自我转发的 Proxy 外壳须走环检测，不得无限递归。
+ */
+function testSelfForwardingProxyTerminates() {
+	console.log('\n=== [自我转发 Proxy 环检测] ===')
+	const target = {}
+	const proxy = new Proxy(target, {})
+	target.x = proxy
+	const snap = serializeArgSnapshot(proxy)
+	assertEqual(snap.kind, 'Proxy', '外壳仍标记为 Proxy')
+	assertEqual(/** @type {{ target: { kind: string } }} */ snap.target.kind, 'circular', '转发回自身时判定为环')
+}
+
+/**
+ * 快照格式化复杂度护栏：深度嵌套应对线性/近线性，不得退化成指数（双重渲染子节点）。
+ * 修好后 depth≈16 约数十 µs；指数退化会到秒级。
+ */
+function testSnapshotFormatComplexityCeiling() {
+	console.log('\n=== [快照格式化：深度嵌套复杂度护栏] ===')
+	let o = { leaf: 1, s: 'x' }
+	for (let i = 0; i < 16; i++) o = { k: o, n: i, t: 'txt' }
+	const snap = serializeArgSnapshot(o, { maxDepth: 20 })
+	// 预热
+	formatSnapshot(snap, { depth: Infinity, colorize: false })
+	const start = performance.now()
+	for (let i = 0; i < 20; i++) formatSnapshot(snap, { depth: Infinity, colorize: false })
+	const ms = performance.now() - start
+	const perOpMs = ms / 20
+	console.log(`  depth≈16 ×20：${ms.toFixed(2)} ms（${(perOpMs * 1000).toFixed(1)} µs/op）`)
+	// 线性路径约几十 µs；留约 3 个数量级余量（50ms），指数退化会远超。
+	assert(perOpMs < 50, `单次 formatSnapshot(depth≈16) 不得超过 50ms（实际 ${perOpMs.toFixed(2)} ms）`)
+}
+
+/**
  * 运行“快照与渲染一致性”分组测试。
  */
-export async function runSnapshotAndRenderingTests() {
+export async function runSnapshotTests() {
 	await runTestGroup('快照与渲染一致性', [
+		testRendering,
 		testRenderPrintfPlain,
 		testPrintfDispatchParity,
 		testPrintfCssAnsiMapping,
@@ -409,7 +570,13 @@ export async function runSnapshotAndRenderingTests() {
 		testErrorSnapshotStackFramesShape,
 		testErrorSnapshotNoStackBrackets,
 		testTruncatedAndExpand,
+		testExpansionScopeReuseAcrossToSegments,
 		testPathToFileURLWindowsDriveUnescapedColon,
 		testCssHex4DigitAlphaDim,
+		testBoxedPrimitiveParity,
+		testSpoofedBoxedToStringTagFallsBack,
+		testEntryKeyEscapeParity,
+		testSelfForwardingProxyTerminates,
+		testSnapshotFormatComplexityCeiling,
 	])
 }

@@ -7,20 +7,25 @@
  * - 浏览器：`@steve02081504/virtual-console/browser`
  *
  * `consoleAsyncStorage` 在浏览器产物中为 `undefined`，请在使用前判断。
+ *
+ * 默认入口运行时仅再导出控制台相关符号；`render*` / `newLogEntry` / `WireLogEntry` 等请从 `/node` 或 `/browser` 导入。
  */
 
 export type {
 	CapturedLogLevel,
 	WriteAsLevelArg,
 	StackFrame,
+	LogEntry,
+	LogSegment,
+	ArgSnapshot,
+	GlobalConsoleRouting,
 } from './src/shared.d.mts'
 
-export type { LogEntry, VirtualConsoleOptions, GlobalConsoleRouting, VirtualStream } from './node.d.mts'
+export type { VirtualConsoleOptions, VirtualStream } from './node.d.mts'
 
 export {
 	VirtualConsole,
 	defaultConsole,
-	globalConsoleAdditionalProperties,
 	console,
 	setGlobalConsoleResolver,
 	getGlobalConsoleResolver,

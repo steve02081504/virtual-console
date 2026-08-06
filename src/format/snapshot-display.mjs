@@ -2,43 +2,23 @@
  * 从 `serializeArgSnapshot` 产出的带 `kind` 标签树生成 plain / ANSI 展示文本。
  */
 
-import { DEFAULT_SNAPSHOT_DEPTH } from '../core/snapshot.mjs'
+import { DEFAULT_SNAPSHOT_DEPTH } from '../core/snapshot/serialize.mjs'
 import { parseStackTraceLine, stackFrameToOsc8Href } from '../core/stack.mjs'
 
-import { ansiHyperlink, stripTerminalDecorations } from './ansi.mjs'
+import { ansiHyperlink } from './ansi.mjs'
 
 /**
  * @typedef {object} FormatSnapshotOptions
  * @property {number} [depth=Infinity] - 对象展开最大深度（超过则输出 `[Object]` 风格占位）。
  * @property {string} [indent='\t'] - 多行结构的缩进单元。
- * @property {boolean} [colorize=true] - ANSI 路径是否着色；plain 路径忽略。
+ * @property {boolean} [colorize=true] - 为 `true` 时输出 ANSI 着色；为 `false` 时输出纯文本。
  */
-
-/**
- * @param {import('../shared.d.mts').ArgSnapshot} snap - 任意快照子树。
- * @param {FormatSnapshotOptions} [options] - 格式选项。
- * @returns {string} 无 ANSI、可搜索的纯文本。
- */
-export function formatSnapshotPlain(snap, options = {}) {
-	return formatSnapshotInner(snap, { ...options, colorize: false })
-}
-
-/**
- * @param {import('../shared.d.mts').ArgSnapshot} snap - 任意快照子树。
- * @param {FormatSnapshotOptions} [options] - 格式选项。
- * @returns {string} 终端 ANSI 文本；`colorize: false` 时剥离 CSI，等价纯文本。
- */
-export function formatSnapshotAnsi(snap, options = {}) {
-	const raw = formatSnapshotInner(snap, { depth: Infinity, colorize: true, ...options })
-	if (options.colorize === false) return stripTerminalDecorations(raw)
-	return raw
-}
 
 /**
  * 合并 `console.dir` 浅层选项与渲染默认值。
  * @param {import('../shared.d.mts').DirOptionsPayload | undefined} dirOpts - 片段上的 `dirOptions`。
  * @param {{ depth: number; colorize: boolean }} fallback - 默认值。
- * @returns {{ depth: number; colorize: boolean }} `formatSnapshot*` 使用的深度与是否着色。
+ * @returns {{ depth: number; colorize: boolean }} `formatSnapshot` 使用的深度与是否着色。
  */
 export function mergeDirOptionsForRender(dirOpts, fallback = { depth: DEFAULT_SNAPSHOT_DEPTH, colorize: true }) {
 	if (!dirOpts) return fallback
@@ -51,7 +31,7 @@ export function mergeDirOptionsForRender(dirOpts, fallback = { depth: DEFAULT_SN
 /**
  * @param {{ dirOptions?: import('../shared.d.mts').DirOptionsPayload }} segment - `kind: 'value'` 片段。
  * @param {boolean} supportsAnsi - 条目级 ANSI 开关。
- * @returns {{ depth: number; colorize: boolean }} `formatSnapshot*` 使用的深度与是否着色。
+ * @returns {{ depth: number; colorize: boolean }} `formatSnapshot` 使用的深度与是否着色。
  */
 export function resolveValueRenderOptions(segment, supportsAnsi) {
 	return mergeDirOptionsForRender(segment.dirOptions, {
@@ -66,9 +46,13 @@ export function resolveValueRenderOptions(segment, supportsAnsi) {
  * @returns {"'" | '"' | '`'} 冲突最少的引号字符。
  */
 function pickBestQuote(str) {
-	const singleCount = (str.match(/'/g) || []).length
-	const doubleCount = (str.match(/"/g) || []).length
-	const backtickCount = (str.match(/`/g) || []).length
+	let singleCount = 0
+	let doubleCount = 0
+	let backtickCount = 0
+	for (const ch of str)
+		if (ch === '\'') singleCount++
+		else if (ch === '"') doubleCount++
+		else if (ch === '`') backtickCount++
 	if (singleCount <= doubleCount && singleCount <= backtickCount) return '\''
 	if (doubleCount <= singleCount && doubleCount <= backtickCount) return '"'
 	return '`'
@@ -81,6 +65,8 @@ function pickBestQuote(str) {
  */
 function quoteSingleJsString(raw) {
 	const value = String(raw)
+	if (!/[\0-\x1f\\'"`]/.test(value) && !value.includes('${'))
+		return `'${value}'`
 	const quote = pickBestQuote(value)
 	let out = ''
 	for (let i = 0; i < value.length; i += 1) {
@@ -105,6 +91,7 @@ function quoteSingleJsString(raw) {
 		else if (ch === '\f') out += '\\f'
 		else if (ch === '\v') out += '\\v'
 		else if (ch === '\0') out += '\\0'
+		else if (ch < ' ' || ch === '\x7f') out += `\\x${ch.codePointAt(0).toString(16).toUpperCase().padStart(2, '0')}`
 		else out += ch
 	}
 	return `${quote}${out}${quote}`
@@ -295,34 +282,50 @@ function formatDateSnapshotValue(ms) {
 }
 
 /**
- * @param {unknown} snap - 任意快照。
- * @param {FormatSnapshotOptions} options - 格式选项（含 `depth`、`colorize`）。
- * @returns {string} 单棵快照树对应的展示文本。
+ * 对象条目键：合法标识符原样输出，否则走与字符串值一致的字面量转义。
+ * @param {string} key - 原始键。
+ * @returns {string} 展示用键文本。
  */
-function formatSnapshotInner(snap, options) {
-	const colorize = options.colorize !== false
+function formatEntryKey(key) {
+	const keyStr = String(key)
+	if (/^[$A-Z_a-z][\w$]*$/.test(keyStr)) return keyStr
+	return quoteSingleJsString(keyStr)
+}
+
+/** @type {Readonly<{ reset: string; green: string; yellow: string; cyan: string; grey: string; magenta: string; red: string; dim: string }>} */
+const ANSI_COLORS = {
+	reset: '\x1b[0m',
+	green: '\x1b[32m',
+	yellow: '\x1b[33m',
+	cyan: '\x1b[36m',
+	grey: '\x1b[90m',
+	magenta: '\x1b[35m',
+	red: '\x1b[31m',
+	dim: '\x1b[2m',
+}
+
+/** @type {Readonly<{ reset: string; green: string; yellow: string; cyan: string; grey: string; magenta: string; red: string; dim: string }>} */
+const PLAIN_COLORS = {
+	reset: '',
+	green: '',
+	yellow: '',
+	cyan: '',
+	grey: '',
+	magenta: '',
+	red: '',
+	dim: '',
+}
+
+/**
+ * @param {unknown} snap - 任意快照。
+ * @param {FormatSnapshotOptions} [options] - 格式选项（含 `depth`、`colorize`）。
+ * @returns {string} 单棵快照树对应的展示文本（`colorize: false` 时为纯文本）。
+ */
+export function formatSnapshot(snap, options = {}) {
+	const colorize = options.colorize ?? true
 	const depthLimit = options.depth ?? Infinity
-	const indentUnit = typeof options.indent === 'string' ? options.indent : '\t'
-	const colors = colorize ? {
-		reset: '\x1b[0m',
-		green: '\x1b[32m',
-		yellow: '\x1b[33m',
-		cyan: '\x1b[36m',
-		grey: '\x1b[90m',
-		magenta: '\x1b[35m',
-		red: '\x1b[31m',
-		dim: '\x1b[2m',
-	}
-		: {
-			reset: '',
-			green: '',
-			yellow: '',
-			cyan: '',
-			grey: '',
-			magenta: '',
-			red: '',
-			dim: '',
-		}
+	const indentUnit = options.indent ?? '\t'
+	const colors = colorize ? ANSI_COLORS : PLAIN_COLORS
 
 	/**
 	 * @param {unknown} snapshotNode - 快照树上的节点（或兜底的非对象原语）。
@@ -340,24 +343,14 @@ function formatSnapshotInner(snap, options) {
 			if (objectDepth >= depthLimit) return ''
 			const compactLines = entries.map(entry => {
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-				let keyStr = key
-				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
-					keyStr = `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
-				return `${keyStr}: ${formatNode(val, objectDepth + 1)}`
+				return `${formatEntryKey(key)}: ${formatNode(val, objectDepth + 1)}`
 			})
 			const compactInner = compactLines.join(', ')
 			if (!compactInner.includes('\n') && compactInner.length <= 120)
 				return ` { ${compactInner} }`
 			const spaces = indentUnit.repeat(objectDepth + 1)
 			const nextIndent = indentUnit.repeat(objectDepth)
-			const lines = entries.map(entry => {
-				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-				let keyStr = key
-				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
-					keyStr = `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
-				return `${spaces}${keyStr}: ${formatNode(val, objectDepth + 1)}`
-			})
-			return ` {\n${lines.join(',\n')}\n${nextIndent}}`
+			return ` {\n${compactLines.map(line => `${spaces}${line}`).join(',\n')}\n${nextIndent}}`
 		}
 
 		if (snapshotNode == null || typeof snapshotNode !== 'object')
@@ -414,6 +407,11 @@ function formatSnapshotInner(snap, options) {
 			return `${colors.cyan}${text}${colors.reset}`
 		}
 
+		if (node.kind === 'Proxy') {
+			const inner = formatNode(node.target, objectDepth)
+			return `${colors.cyan}Proxy(${colors.reset}${inner}${colors.cyan})${colors.reset}`
+		}
+
 		if (node.kind === 'Date')
 			return `${colors.magenta}${formatDateSnapshotValue(node.value)}${colors.reset}`
 
@@ -444,7 +442,7 @@ function formatSnapshotInner(snap, options) {
 			const extra = Array.isArray(node.entries) && node.entries.length
 				? '\n' + node.entries.map(entry => {
 					const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-					return `  ${key}: ${formatNode(val, objectDepth)}`
+					return `  ${formatEntryKey(key)}: ${formatNode(val, objectDepth)}`
 				}).join('\n')
 				: ''
 			const frames = /** @type {import('../shared.d.mts').StackFrame[]} */ node.stack
@@ -491,42 +489,24 @@ function formatSnapshotInner(snap, options) {
 			return `[\n${inner}\n${openIndent}]`
 		}
 
-		// 泛型对象：kind + entries
+		// 泛型对象：kind + entries（子节点只渲染一次，多行由 compact 派生）
 		if (Array.isArray(node.entries)) {
 			if (objectDepth >= depthLimit)
 				return `${colors.cyan}[${String(node.kind ?? 'Object')}]${colors.reset}`
 			const entries = /** @type {Array<{ key: string; value: unknown }>} */ node.entries
-			if (!entries.length) {
-				const kind = String(node.kind ?? 'Object')
-				return `${kind === 'object' || kind === 'Object' ? '' : kind + ' '}{}`
-			}
-			const isArrayLike = node.kind === 'array'
-			const open = isArrayLike ? '[' : '{'
-			const close = isArrayLike ? ']' : '}'
-			const spaces = indentUnit.repeat(objectDepth + 1)
-			const nextIndent = indentUnit.repeat(objectDepth)
-			const lines = entries.map(entry => {
-				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-				if (isArrayLike) return `${spaces}${formatNode(val, objectDepth + 1)}`
-				let keyStr = key
-				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
-					keyStr = `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
-				return `${spaces}${keyStr}: ${formatNode(val, objectDepth + 1)}`
-			})
+			const kind = String(node.kind ?? 'Object')
+			const prefix = kind === 'object' || kind === 'Object' ? '' : `${kind} `
+			if (!entries.length) return `${prefix}{}`
 			const compactLines = entries.map(entry => {
 				const { key, value: val } = /** @type {{ key: string; value: unknown }} */ entry
-				if (isArrayLike) return formatNode(val, objectDepth + 1)
-				let keyStr = key
-				if (!/^[$A-Z_a-z][\w$]*$/.test(keyStr))
-					keyStr = `'${keyStr.replaceAll('\'', '\\\'').replaceAll('\n', '\\n')}'`
-				return `${keyStr}: ${formatNode(val, objectDepth + 1)}`
+				return `${formatEntryKey(key)}: ${formatNode(val, objectDepth + 1)}`
 			})
 			const compactInner = compactLines.join(', ')
-			const compactPrefix = node.kind && node.kind !== 'object' && node.kind !== 'Object' ? `${node.kind} ` : ''
 			if (!compactInner.includes('\n') && compactInner.length <= 80)
-				return `${compactPrefix}${open} ${compactInner} ${close}`
-			const prefix = node.kind && node.kind !== 'object' && node.kind !== 'Object' ? `${node.kind} ` : ''
-			return `${prefix}${open}\n${lines.join(',\n')}\n${nextIndent}${close}`
+				return `${prefix}{ ${compactInner} }`
+			const spaces = indentUnit.repeat(objectDepth + 1)
+			const nextIndent = indentUnit.repeat(objectDepth)
+			return `${prefix}{\n${compactLines.map(line => `${spaces}${line}`).join(',\n')}\n${nextIndent}}`
 		}
 
 		return JSON.stringify(node)

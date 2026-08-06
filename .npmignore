@@ -4,3 +4,5 @@
 .gitignore
 .npmignore
 test/
+AGENTS.md
+docs/

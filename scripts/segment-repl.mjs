@@ -9,7 +9,7 @@
 import repl from 'node:repl'
 import util from 'node:util'
 
-import { DEFAULT_SNAPSHOT_DEPTH, serializeArgSnapshot } from '#vc/core/snapshot.mjs'
+import { DEFAULT_SNAPSHOT_DEPTH, serializeArgSnapshot } from '#vc/core/snapshot/serialize.mjs'
 import { renderAnsi, renderHtml, renderPlain } from '#vc/format/render.mjs'
 import { buildArgsSegments } from '#vc/format/segments.mjs'
 

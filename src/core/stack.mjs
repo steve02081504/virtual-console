@@ -189,3 +189,19 @@ export function trimLeadingRuntimeInternalFrames(frames) {
 	if (index === -1) index = 0
 	return frames.slice(index)
 }
+
+/**
+ * 从结构化片段解析主调用点：优先首个根级 `Error` 快照栈中带路径的帧，否则回退到捕获栈。
+ * 与 Error 快照字段对齐；进程内 `LogEntry#toSegments` 与线路 `segments` 共用。
+ * @param {import('../shared.d.mts').LogSegment[] | undefined} segments - 结构化片段。
+ * @param {import('../shared.d.mts').StackFrame[]} [stack] - `getStackInfo` 捕获栈。
+ * @returns {import('../shared.d.mts').StackFrame | null} 主调用点帧；片段与捕获栈均无路径帧时为 `null`。
+ */
+export function resolvePrimaryCallsiteFromSegments(segments, stack) {
+	for (const seg of segments ?? [])
+		if (seg?.kind === 'value' && seg?.snapshot?.kind === 'Error') {
+			const frame = seg.snapshot.stack?.find(f => f?.filePath)
+			if (frame) return frame
+		}
+	return stack?.find(f => f?.filePath) ?? null
+}

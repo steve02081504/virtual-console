@@ -1,15 +1,7 @@
 import type { BaseVirtualConsoleOptions, GlobalConsoleRouting, LogEntry, WriteAsLevelArg } from './src/shared.d.mts'
 
-export type {
-	CapturedLogLevel,
-	WriteAsLevelArg,
-	StackFrame,
-	ArgSnapshot,
-	LogSegment,
-	GlobalConsoleRouting,
-} from './src/shared.d.mts'
-
-export type { LogEntry }
+export * from './src/shared.d.mts'
+export { WireLogEntry } from './src/wire/wire-log-entry.mjs'
 
 /**
  * 浏览器环境虚拟控制台配置选项
@@ -34,19 +26,22 @@ export class VirtualConsole {
 	readonly outputs: string
 	/** 所有捕获输出拼接成的 HTML 字符串 */
 	readonly outputsHtml: string
-	/** 结构化日志条目数组 */
+	/** 结构化日志条目数组（`block` 期间可暂时超出 `maxLogEntries`，`unblock` 后裁回） */
 	outputEntries: LogEntry[]
 	/** 最终合并后的配置项（日志监听请用 {@link addLogEntryListener} / {@link removeLogEntryListener}） */
 	options: Required<Omit<VirtualConsoleOptions, 'baseConsole'>> & {
 		baseConsole?: VirtualConsole | Console
 	}
-
+	/** `realConsoleOutput` 的透传目标控制台实例 */
+	baseConsole: VirtualConsole | Console
 	/**
 	 * 采集调用栈时额外跳过的帧数；初始为 `0`。
 	 * 在自定义包装函数中调用 `console.*` 时，在调用前 `+1`，`finally` 中 `-1`，
 	 * 以确保 `entry.stack` 指向真正的调用方而非包装层。
 	 */
 	stackFrameSkipCount: number
+	/** 是否处于 `block` 状态（嵌套深度大于 0） */
+	readonly blocked: boolean
 
 	constructor(options?: VirtualConsoleOptions)
 
@@ -61,6 +56,19 @@ export class VirtualConsole {
 
 	/** 移除由 {@link addClearListener} 注册的回调 */
 	removeClearListener(fn: () => void): void
+
+	/**
+	 * 进入 block：本地记录与监听照常，实际输出（含向 `baseConsole` 的转发）入队延后；可重入。
+	 * block 期间 `outputEntries` 可不裁剪到 `maxLogEntries`。
+	 */
+	block(): void
+
+	/**
+	 * 退出一层 block；深度归零时按序重放待输出内容（含 `clear` 标记）并恢复长度限制。
+	 * 深度已为 0 时调用是空操作：不抛错，`blocked` 保持 `false`。
+	 * @returns {boolean} 深度归零时为 `true`。
+	 */
+	unblock(): boolean
 
 	/**
 	 * 传入函数时，使用 save/restore 机制在函数内将 `console` 绑定到此实例，
@@ -84,7 +92,8 @@ export class VirtualConsole {
 
 	/**
 	 * 清空 `outputEntries` 并重置 `freshLine` 状态。
-	 * 若 `realConsoleOutput` 为 `true`，也会调用底层控制台的 `clear()`。
+	 * 若 `realConsoleOutput` 为 `true`，也会调用底层控制台的 `clear()`
+	 * （`block` 期间将 clear 标记入队，`unblock` 时按序重放）。
 	 * 清空完成后同步调用 {@link addClearListener} 注册的回调。
 	 */
 	clear(): void
@@ -106,13 +115,6 @@ export interface VirtualConsole extends Console { }
 export const defaultConsole: VirtualConsole
 
 /**
- * 合并到全局 `console` 代理上的附加属性对象。
- * 对 `globalThis.console` 写入未知属性时，值会存储在这里，
- * 以便跨上下文共享自定义扩展字段。
- */
-export const globalConsoleAdditionalProperties: Record<string, unknown>
-
-/**
  * 替换全局 `console` 代理的上下文路由逻辑。
  * @param resolveWithFallback 给定 `defaultConsole` 作为兜底，返回当前应激活的 `VirtualConsole`
  * @param setActive 将指定实例设为当前上下文的活动控制台
@@ -129,8 +131,6 @@ export function getGlobalConsoleResolver(): GlobalConsoleRouting<VirtualConsole>
 
 /** 全局 `console` 代理对象——所有调用委托给当前上下文中激活的 `VirtualConsole` */
 export const console: VirtualConsole
-
-export type * from './src/shared.d.mts'
 
 declare global {
 	var console: VirtualConsole

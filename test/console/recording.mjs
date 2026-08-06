@@ -1,18 +1,14 @@
-import {
-	VirtualConsole,
-	renderAnsi,
-	renderPlain,
-} from '@steve02081504/virtual-console'
+import { VirtualConsole, renderAnsi, renderPlain } from '@steve02081504/virtual-console'
 
-import { assert, assertEqual, assertIncludes, runTestGroup } from '../../harness.mjs'
+import { assert, assertEqual, assertIncludes, runTestGroup } from '../harness.mjs'
 
 /**
- * 验证 supportsAnsi 模式下对象日志渲染与聚合输出一致。
+ *
  */
 async function testSupportsAnsiVcLogComplexObject() {
 	console.log('\n=== [supportsAnsi：log 含 date/number/string/bigint] ===')
 
-	const obj = { d: new Date(0), n: 42, s: 'hello', b: 2n }
+	const obj = { d: new Date(0), n: 72, s: 'hello', b: 2n }
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false, supportsAnsi: true })
 
 	await vc.hookAsyncContext(() => { console.log(obj) })
@@ -26,42 +22,9 @@ async function testSupportsAnsiVcLogComplexObject() {
 /**
  * 覆盖常见占位符、ANSI、CSS 与注入场景的渲染行为。
  */
-async function testRendering() {
-	console.log('\n=== [渲染功能测试] ===')
-	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
-	await vc.hookAsyncContext(() => {
-		console.log('--- [1. Standard Placeholders] ---')
-		console.log('String: %s', 'Hello World')
-		console.log('Integer: %d, Float: %f', 123, 45.678)
-		console.log('JSON Object: %o', { id: 1, status: 'ok' })
-		console.log('\n--- [2. ANSI Colors] ---')
-		console.log('\x1b[31mRed Text\x1b[0m')
-		console.log('\x1b[32mGreen Text\x1b[0m and \x1b[34mBlue Text\x1b[0m')
-		console.log('\n--- [3. CSS Styling (%c)] ---')
-		console.log('%cThis text is Blue and Large', 'color: blue; font-size: 20px')
-		console.log('Normal, %cRed Background%c, Normal again', 'background: red; color: white', '')
-		console.log('\n--- [4. Injection Test] ---')
-		const injectionPayload = '"><script>alert("pwned")</script><span style="'
-		console.log('%cInjection Test', injectionPayload)
-		console.log('Attempting to inject a script tag: %s', '<script>alert("oops")</script>')
-		console.log('\n--- [5. Special Cases] ---')
-		console.log('%s', Object.create(null))
-		const a = {}; a.a = a
-		console.log(a)
-		console.log('%f', Symbol('lol'))
-		console.log('%d', Symbol('lol'))
-		console.log('%j', Symbol('lol'))
-		console.log('%o', Symbol('lol'))
-	})
-	assertIncludes(vc.outputs, 'String: Hello World', 'outputs 包含格式化字符串')
-	assertIncludes(vc.outputs, 'Integer: 123, Float: 45.678', 'outputs 包含数字格式化')
-	assertIncludes(vc.outputsHtml, '&lt;script&gt;', 'HTML 输出对 script 标签进行了转义')
-	assertIncludes(vc.outputsHtml, 'color: blue; font-size: 20px', '支持 %c CSS 样式')
-	assertIncludes(vc.outputs, 'NaN', 'Symbol 用于 %f/%d 格式化时返回 NaN')
-}
 
 /**
- * 验证 outputEntries 的级别、参数与聚合输出。
+ *
  */
 async function testOutputEntries() {
 	console.log('\n=== [outputEntries 结构化日志条目测试] ===')
@@ -87,10 +50,14 @@ async function testOutputEntries() {
 /**
  * 验证 console.dir 被捕获为结构化条目且渲染一致。
  */
+
+/**
+ *
+ */
 async function testConsoleDir() {
 	console.log('\n=== [console.dir 捕获测试] ===')
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
-	await vc.hookAsyncContext(() => { console.dir({ id: 42, nested: { ok: true } }, { depth: 3 }) })
+	await vc.hookAsyncContext(() => { console.dir({ id: 72, nested: { ok: true } }, { depth: 3 }) })
 	assertEqual(vc.outputEntries.length, 1, 'dir 产生一条 outputEntry')
 	const dirEntry = vc.outputEntries[0]
 	assertEqual(dirEntry.method, 'dir', 'method 为 dir')
@@ -102,13 +69,17 @@ async function testConsoleDir() {
 	const ansiFromSegments = renderAnsi(dirSegments, { colorize: dirEntry.supportsAnsi })
 	assertEqual(ansiFromSegments, dirEntry.toString(), 'dir：`renderAnsi(toSegments())` 必须与 `toString()` 一致')
 	assertEqual(renderPlain(dirSegments), dirEntry.toPlainText(), 'dir：`renderPlain(toSegments())` 必须与 `toPlainText()` 一致')
-	assertIncludes(dirEntry.toString(), '42', 'dir toString 包含对象内容')
-	assertIncludes(dirEntry.toHtml(), '42', 'dir toHtml 包含对象内容')
-	assertIncludes(vc.outputs, '42', 'outputs 聚合含 dir 输出')
+	assertIncludes(dirEntry.toString(), '72', 'dir toString 包含对象内容')
+	assertIncludes(dirEntry.toHtml(), '72', 'dir toHtml 包含对象内容')
+	assertIncludes(vc.outputs, '72', 'outputs 聚合含 dir 输出')
 }
 
 /**
  * 验证 maxLogEntries 限制仅保留最新日志。
+ */
+
+/**
+ *
  */
 async function testMaxLogEntries() {
 	console.log('\n=== [maxLogEntries 限制测试] ===')
@@ -121,7 +92,53 @@ async function testMaxLogEntries() {
 }
 
 /**
+ * 验证长度裁剪前监听器仍按写入次数同步触发。
+ */
+
+/**
+ *
+ */
+async function testMaxLogEntriesListenersFireBeforeTrim() {
+	console.log('\n=== [maxLogEntries：监听器在裁剪前逐条触发] ===')
+	const seen = []
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false, maxLogEntries: 3 })
+	vc.addLogEntryListener(entry => seen.push(entry.args[0]))
+	await vc.hookAsyncContext(() => {
+		console.log('msg1'); console.log('msg2'); console.log('msg3'); console.log('msg4'); console.log('msg5')
+	})
+	assertEqual(seen.length, 5, '监听器触发 5 次（含已被裁掉的条目）')
+	assertEqual(seen.join(','), 'msg1,msg2,msg3,msg4,msg5', '监听器按写入顺序收到全部内容')
+	assertEqual(vc.outputEntries.map(entry => entry.args[0]).join(','), 'msg3,msg4,msg5', '缓冲仅保留最新 3 条')
+	assertIncludes(vc.outputs, 'msg3', 'outputs 含保留条目')
+	assert(!vc.outputs.includes('msg1'), 'outputs 不含已裁掉的 msg1')
+}
+
+/**
+ * 验证 console 与 stream 交错写入的记录顺序。
+ */
+
+/**
+ *
+ */
+async function testInterleavedConsoleAndStreamOrder() {
+	console.log('\n=== [console / stream 交错顺序] ===')
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	await vc.hookAsyncContext(() => {
+		console.log('a')
+		process.stdout.write('b')
+		process.stderr.write('c')
+		console.log('d')
+	})
+	assertEqual(vc.outputEntries.map(entry => entry.method).join(','), 'log,stdout,stderr,log', 'method 顺序为 log→stdout→stderr→log')
+	assertEqual(vc.outputs, 'a\nbcd\n', 'outputs 按捕获顺序拼接（LogEntry 带 \\n，stream 不带）')
+}
+
+/**
  * 验证 clear 会重置缓存并触发 clear 监听器。
+ */
+
+/**
+ *
  */
 async function testClear() {
 	console.log('\n=== [clear() 重置测试] ===')
@@ -140,6 +157,10 @@ async function testClear() {
 /**
  * 验证全局 console 代理暴露 API 且监听绑定正确。
  */
+
+/**
+ *
+ */
 async function testGlobalConsoleProxy() {
 	console.log('\n=== [全局 console 代理：API 与可调用性] ===')
 	assert(typeof console.addLogEntryListener === 'function', 'console.addLogEntryListener 为函数')
@@ -149,11 +170,11 @@ async function testGlobalConsoleProxy() {
 	assert(typeof console.clear === 'function', 'console.clear 为函数')
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
 	let logCalls = 0
-	/** @type {import('../../../src/core/entries.mjs').LogEntry[]} */
+	/** @type {import('../../src/core/entries/log-entry.mjs').LogEntry[]} */
 	const seenEntries = []
 	/**
 	 * 监听 logEntry 事件。
-	 * @param {import('../../../src/core/entries.mjs').LogEntry} entry - 捕获到的日志条目。
+	 * @param {import('../../src/core/entries/log-entry.mjs').LogEntry} entry - 捕获到的日志条目。
 	 * @returns {void}
 	 */
 	const onLog = (entry) => { logCalls++; seenEntries.push(entry) }
@@ -177,6 +198,10 @@ async function testGlobalConsoleProxy() {
 /**
  * 验证 writeAs 可以按指定级别写入日志条目。
  */
+
+/**
+ *
+ */
 async function testWriteAs() {
 	console.log('\n=== [writeAs 方法测试] ===')
 	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
@@ -188,7 +213,46 @@ async function testWriteAs() {
 }
 
 /**
+ * 验证方法名映射表不会解析到 Object.prototype 上的继承键。
+ */
+
+/**
+ *
+ */
+async function testWriteAsInheritedMethodName() {
+	console.log('\n=== [writeAs 继承键名测试] ===')
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	vc.writeAs('toString', 'inherited name')
+	assertEqual(vc.outputEntries.length, 1, 'writeAs("toString") 记录一条日志而非抛错')
+	assertEqual(vc.outputEntries[0].method, 'toString', '方法名原样保留')
+	assertEqual(vc.outputEntries[0].level, 'toString', '级别不得取自 Object.prototype')
+	assertIncludes(vc.outputEntries[0].toString(), 'inherited name', '内容正确')
+}
+
+/**
+ * 验证 console.dir 请求的 depth 会同时作用于快照序列化深度。
+ */
+
+/**
+ *
+ */
+async function testConsoleDirDeepDepth() {
+	console.log('\n=== [console.dir 请求深度测试] ===')
+	let deep = { leaf: 'bottom' }
+	for (let i = 0; i < 7; i++) deep = { [`k${i}`]: deep }
+	const vc = new VirtualConsole({ recordOutput: true, realConsoleOutput: false })
+	vc.dir(deep, { depth: 9 })
+	vc.dir(deep)
+	assertIncludes(vc.outputEntries[0].toPlainText(), 'bottom', 'depth=9 时深层内容不被截断')
+	assert(!vc.outputEntries[1].toPlainText().includes('bottom'), '默认深度仍在 DEFAULT_SNAPSHOT_DEPTH 处截断')
+}
+
+/**
  * 验证 process.stdout/stderr 写入会被重定向并分级。
+ */
+
+/**
+ *
  */
 async function testProcessStreamRedirection() {
 	console.log('\n=== [process.stdout / stderr 重定向测试] ===')
@@ -213,6 +277,10 @@ async function testProcessStreamRedirection() {
 /**
  * 验证 addLogEntryListener 对 console 与流写入均生效。
  */
+
+/**
+ *
+ */
 async function testAddLogEntryListenerCallbacks() {
 	console.log('\n=== [addLogEntryListener：console 与流] ===')
 	const callbackEntries = []
@@ -233,6 +301,10 @@ async function testAddLogEntryListenerCallbacks() {
 /**
  * 验证 recordOutput=false 时不会保留任何输出条目。
  */
+
+/**
+ *
+ */
 async function testRecordOutputFalse() {
 	console.log('\n=== [recordOutput: false 测试] ===')
 	const vc = new VirtualConsole({ recordOutput: false, realConsoleOutput: false })
@@ -242,7 +314,31 @@ async function testRecordOutputFalse() {
 }
 
 /**
+ * 验证 recordOutput=false 时监听器也不触发（与存储同门）。
+ */
+
+/**
+ *
+ */
+async function testRecordOutputFalseSkipsListeners() {
+	console.log('\n=== [recordOutput: false 时监听器不触发] ===')
+	let calls = 0
+	const vc = new VirtualConsole({ recordOutput: false, realConsoleOutput: false })
+	vc.addLogEntryListener(() => { calls++ })
+	await vc.hookAsyncContext(() => {
+		console.log('silent')
+		process.stdout.write('silent-stream')
+	})
+	assertEqual(calls, 0, 'recordOutput: false 时 addLogEntryListener 不触发')
+	assertEqual(vc.outputEntries.length, 0, '缓冲仍为空')
+}
+
+/**
  * 验证 realConsoleOutput=true 时 writeAs 不会重复记录。
+ */
+
+/**
+ *
  */
 async function testWriteAsNoDoubleRecord() {
 	console.log('\n=== [writeAs 不双重记录测试] ===')
@@ -260,21 +356,14 @@ async function testWriteAsNoDoubleRecord() {
 }
 
 /**
- * 运行“VirtualConsole 记录与输出”分组测试。
+ * 嵌套 VC：子级 console.log 与 process.stdout.write 都应到达父级。
  */
-export async function runVirtualConsoleTests() {
+
+/**
+ *
+ */
+export async function runRecordingTests() {
 	await runTestGroup('VirtualConsole 记录与输出', [
-		testSupportsAnsiVcLogComplexObject,
-		testOutputEntries,
-		testConsoleDir,
-		testMaxLogEntries,
-		testClear,
-		testWriteAs,
-		testWriteAsNoDoubleRecord,
-		testProcessStreamRedirection,
-		testAddLogEntryListenerCallbacks,
-		testRecordOutputFalse,
-		testGlobalConsoleProxy,
-		testRendering,
+		testSupportsAnsiVcLogComplexObject, testOutputEntries, testConsoleDir, testConsoleDirDeepDepth, testMaxLogEntries, testMaxLogEntriesListenersFireBeforeTrim, testInterleavedConsoleAndStreamOrder, testClear, testGlobalConsoleProxy, testWriteAs, testWriteAsInheritedMethodName, testProcessStreamRedirection, testAddLogEntryListenerCallbacks, testRecordOutputFalse, testRecordOutputFalseSkipsListeners, testWriteAsNoDoubleRecord,
 	])
 }

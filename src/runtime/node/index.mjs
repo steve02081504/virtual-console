@@ -5,7 +5,6 @@ export {
 	consoleAsyncStorage,
 	VirtualConsole,
 	defaultConsole,
-	globalConsoleAdditionalProperties,
 	setGlobalConsoleResolver,
 	getGlobalConsoleResolver,
 	console,
