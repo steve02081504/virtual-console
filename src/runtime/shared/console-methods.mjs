@@ -38,4 +38,4 @@ export const BOUND_INSTANCE_METHODS = [
  * 无需 `baseConsole` 同名方法、由 `emitNative` 自行渲染的伪方法。
  * 快路径据此判断可否不建带栈条目而直接 `newLogEntry` 后原生输出。
  */
-export const PLATFORM_EMITTED_METHODS = ['stdout', 'stderr', 'freshLine']
+export const PLATFORM_EMITTED_METHODS = new Set(['stdout', 'stderr', 'freshLine'])

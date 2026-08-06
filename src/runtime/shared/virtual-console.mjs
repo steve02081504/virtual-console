@@ -254,7 +254,7 @@ export function VirtualConsoleMixin(Base = Object, platform) {
 				if (!this.options.realConsoleOutput) return
 				if (isVirtualConsole(this.#baseConsole))
 					return this.#baseConsole.#dispatch(method, args, skipFrames + 1)
-				if (PLATFORM_EMITTED_METHODS.includes(method) || this.#baseConsole[method] instanceof Function)
+				if (PLATFORM_EMITTED_METHODS.has(method) || this.#baseConsole[method] instanceof Function)
 					return this.#emit(newLogEntry({ method, args, supportsAnsi: this.options.supportsAnsi }))
 			}
 			this.#ingest(this.#capture(method, args, skipFrames))
