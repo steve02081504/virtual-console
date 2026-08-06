@@ -257,14 +257,43 @@ On Node, `VirtualConsole` extends the built-in `Console`. In the browser it sati
 
 ## Performance
 
-Practical knobs:
+VirtualConsole is built for hot paths: passthrough layers stay cheaper than native `console`, and full capture stays within a small constant factor.
+
+**Node.js v26 · `console.log('perf', n)` · 20,000 ops · null sink** ([`npm run bench`](scripts/bench.mjs))
+
+| Scenario | µs/op | vs native `log` | Throughput |
+| -------- | ----: | --------------: | ---------: |
+| Native `console.log` | **3.9** | 1× | ~256k/s |
+| VC `log` · `recordOutput: false` | **0.2** | **~20× faster** | ~5M/s |
+| VC `writeAs` · `recordOutput: false` | **0.3** | **~13× faster** | ~3M/s |
+| VC `log` · `recordOutput: true` | **20** | ~5× slower | ~50k/s |
+| VC `writeAs` · `recordOutput: true` | **22** | ~6× slower | ~45k/s |
+
+Passthrough (`recordOutput: false`, no `realConsoleOutput`) is a near-no-op dispatch — no formatting, no I/O, no entry allocation. Use it on parent layers that only route context while a child records.
+
+**Stream passthrough** (`process.stdout.write`, non-capturing): **2.8 µs/op** vs native **2.6 µs/op** (~8% overhead).
+
+**Lazy rendering** — pay for `toString` / `toHtml` only when you read them (nested object fixture):
+
+| Render | µs/op |
+| ------ | ----: |
+| `toString()` (plain string) | 1.7 |
+| `toSegments()` (nested object) | 5.6 |
+| `toString()` (nested object) | 12 |
+| `toHtml()` (nested object) | 36 |
+
+Snapshot formatting scales **linearly** with object depth (depth‑8 / depth‑1 ≈ **4×**, not exponential ~128×+).
+
+CI enforces ceilings on the integration suite (e.g. non-capturing `log` ≤ 1× native, capturing `log` ≤ 6×, `stdout.write` ≤ 3×).
+
+### Practical knobs
 
 - Set **`recordOutput: false`** on layers that only forward (e.g. a parent with `realConsoleOutput: true` and a child that records).
 - Bound memory with **`maxLogEntries`**.
 - Prefer cheap fields (`level`, `method`, `args`) until a UI or assertion needs stack / HTML / segments.
 - Avoid polling `outputs` / `outputsHtml` in tight loops — cache, or listen with `addLogEntryListener` and format selectively.
 
-Microbenchmarks: `npm run bench`.
+Reproduce locally: `npm run bench`.
 
 ## Log levels
 
