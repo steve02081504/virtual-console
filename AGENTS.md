@@ -11,6 +11,7 @@ Use `isVirtualConsole(value)` (`VIRTUAL_CONSOLE_BRAND`) — see `src/runtime/sha
 - `VirtualConsoleMixin(Base, platform)` closes over a per-runtime descriptor (`routing`, `emitNative`; Node also `createStream` / `writeNativeChunk`). Internals are `#` private; there are no overridable public hooks (`emit` / `getRouting` / …).
 - Cross-instance `#` access requires **one mixin instantiation per runtime** (Node and browser each import once).
 - Pseudo-methods rendered by `emitNative` without a same-named `baseConsole` method live in `PLATFORM_EMITTED_METHODS` (`stdout` / `stderr` / `freshLine`).
+- Node: pin `originalConsole._stdout` / `_stderr` to `streamTable` (pre-hook natives) before replacing `process.stdout` / `stderr` with getters; `writeNativeChunk` / `emitNative` also use `streamTable`.
 
 ## Capture, wire, pipeline
 

@@ -38,6 +38,9 @@ const createDiscardStream = () => new Writable({ /**
 })
 
 const originalConsole = globalThis.console
+// 钉死到 hook 前的原生流，避免之后 `process.stdout` getter 让透传再绕回虚拟流。
+originalConsole._stdout = streamTable.stdout
+originalConsole._stderr = streamTable.stderr
 
 const routing = createConsoleRouting({
 	/** @returns {VirtualConsole | undefined} 当前 `AsyncLocalStorage` 槽位。 */
